@@ -35,7 +35,7 @@
       --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
     }
 
-    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; background-image: radial-gradient(ellipse at top right, rgba(120,53,15,0.08) 0%, transparent 60%), radial-gradient(ellipse at bottom left, rgba(146,64,14,0.06) 0%, transparent 60%); background-attachment: fixed; -webkit-text-size-adjust: 100%; }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; background-image: radial-gradient(ellipse at top right, rgba(120,53,15,0.08) 0%, transparent 60%), radial-gradient(ellipse at bottom left, rgba(146,64,14,0.06) 0%, transparent 60%); background-attachment: fixed; -webkit-text-size-adjust: 100%; overflow-x: hidden; max-width: 100%; }
 
     /* ── Layout ───────────────────────────────────────────────────────────── */
     #app { display: grid; grid-template-rows: auto 1fr; grid-template-columns: 1fr 320px; height: 100vh; height: 100dvh; overflow: hidden; }
