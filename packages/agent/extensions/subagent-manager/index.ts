@@ -133,9 +133,11 @@ function openRunsDb(dataRoot: string): Database {
       finished_at INTEGER,
       retries     INTEGER NOT NULL DEFAULT 0
     );
-    -- Additive migration: add stderr column if it doesn't exist
-    ALTER TABLE runs ADD COLUMN stderr TEXT;
+    -- Additive migration: add stderr column if it doesn't exist (safe on repeat runs)
+    CREATE TABLE IF NOT EXISTS runs_migration_check (dummy INTEGER);
   `);
+  // Add stderr column idempotently (ALTER TABLE throws if column exists in SQLite)
+  try { db.exec(`ALTER TABLE runs ADD COLUMN stderr TEXT`); } catch { /* already exists */ }
 
   // Mark any runs still 'running' from a previous process as orphaned
   const orphaned = db.prepare(
