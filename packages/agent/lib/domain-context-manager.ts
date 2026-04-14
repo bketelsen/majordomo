@@ -1,17 +1,10 @@
 /**
  * DomainContextManager
  *
- * Replaces DomainSessionPool in Phase 2 (single-session architecture).
  * Manages a single long-running pi AgentSession where domain context is
- * injected dynamically rather than isolated in separate processes.
- *
- * Key differences from DomainSessionPool:
- *   - Holds ONE AgentSession (not a map of sessions)
- *   - activeDomain is mutable state (switches without restarting session)
- *   - Extensions load once as singletons (getDomain accessor)
- *   - Unified session.jsonl (all domains)
- *
- * Phase 1: Built alongside DomainSessionPool (not wired into service.ts yet)
+ * injected dynamically. Domain is a runtime state variable, not a session
+ * boundary. Extensions load once as singletons via getDomain() accessor.
+ * Unified session history in a single session.jsonl.
  */
 
 import * as path from "node:path";

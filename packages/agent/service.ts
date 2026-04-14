@@ -5,11 +5,11 @@
  * This is what systemd runs. For interactive single-domain use, see main.ts.
  *
  * Usage:
- *   bun service.ts
- *   TELEGRAM_BOT_TOKEN=... bun service.ts
+ *   majordomo dev
+ *   TELEGRAM_BOT_TOKEN=... majordomo dev
  *
- * Without TELEGRAM_BOT_TOKEN: runs domain sessions only (web bridge in Phase 3).
- * With TELEGRAM_BOT_TOKEN: also starts Telegram bot for all domains.
+ * Without TELEGRAM_BOT_TOKEN: runs without Telegram integration.
+ * With TELEGRAM_BOT_TOKEN: also starts Telegram bot.
  */
 
 import * as path from "node:path";

@@ -3,10 +3,10 @@
  *
  * Serves the dashboard and provides the API that the SvelteKit frontend consumes.
  * Communicates with the agent service via:
- *   - Shared DomainSessionPool (in-process when run together)
- *   - OR an IPC socket (when run as separate process — Phase 3b)
+ *   - Shared DomainContextManager (in-process when run together)
+ *   
  *
- * For Phase 3, this runs in-process alongside the agent service via service.ts.
+ * Runs in-process alongside the agent service via service.ts.
  *
  * Routes:
  *   GET  /api/domains              — list active domains

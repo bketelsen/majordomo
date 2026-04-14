@@ -215,7 +215,7 @@ majordomo dev                    # Run from source (no deployment)
 │   │   │   ├── subagent-manager/          # Orchestration
 │   │   │   └── scheduler/                 # Cron jobs
 │   │   ├── lib/
-│   │   │   ├── domain-session-pool.ts     # Multi-domain session mgmt
+│   │   │   ├── domain-context-manager.ts  # Single-session architecture
 │   │   │   └── telegram-bot.ts            # Telegram routing
 │   │   ├── persona/majordomo.md           # Chief-of-staff persona
 │   │   ├── main.ts                        # Interactive mode

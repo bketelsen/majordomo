@@ -166,12 +166,12 @@ Attempting to write these returns an error.
 Majordomo will create the directory, scaffold the standard files with L0 headers, register it in `domains.yml`, and make it immediately available. You can also add `workingDir` to point subagents at a project directory:
 
 ```yaml
-- id: goldenpath
-  path: projects/goldenpath
+- id: myproject
+    path: projects/myproject
   type: project
-  label: "GoldenPath project"
-  workingDir: /home/bjk/projects/goldenpath
-  triggers: [goldenpath]
+    label: "My Project"
+    workingDir: /home/user/projects/myproject
+    triggers: [myproject]
 ```
 
 ---
