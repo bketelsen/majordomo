@@ -17,6 +17,14 @@ export function isCompiledBinary(): boolean {
 import indexHTMLRaw from '../static/index.html' with { type: 'text' };
 export const indexHTML: string = indexHTMLRaw as unknown as string;
 
+// PWA manifest and service worker
+// @ts-ignore
+import manifestRaw from '../static/manifest.json' with { type: 'text' };
+// @ts-ignore
+import serviceWorkerRaw from '../static/sw.js' with { type: 'text' };
+export const manifest: string = manifestRaw as unknown as string;
+export const serviceWorker: string = serviceWorkerRaw as unknown as string;
+
 // Default agent definitions (shipped with binary)
 // @ts-ignore
 import researcherRaw from '../../../agents/researcher.md' with { type: 'text' };

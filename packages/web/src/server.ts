@@ -31,7 +31,7 @@ import { listAllContainers, dockerAction, incusAction } from "./lib/containers.t
 import { markPriorityDone } from "./lib/priorities.ts";
 import { fetchRecentEmails, markEmailRead } from "./lib/email.ts";
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
-import { indexHTML, isCompiledBinary } from "./assets.ts";
+import { indexHTML, isCompiledBinary, manifest, serviceWorker } from "./assets.ts";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -710,6 +710,35 @@ app.get("/sse", (c) => {
 });
 
 // ── Static SvelteKit frontend ─────────────────────────────────────────────────
+
+// Serve PWA manifest and service worker (compiled binary or from disk)
+app.get("/manifest.json", async (c) => {
+  if (isCompiledBinary()) {
+    return c.json(JSON.parse(manifest));
+  }
+  try {
+    const content = await fs.readFile(path.join(STATIC_ROOT, "manifest.json"), "utf-8");
+    return c.json(JSON.parse(content));
+  } catch {
+    return c.json({ error: "Manifest not found" }, 404);
+  }
+});
+
+app.get("/sw.js", async (c) => {
+  if (isCompiledBinary()) {
+    return new Response(serviceWorker, {
+      headers: { "Content-Type": "application/javascript" },
+    });
+  }
+  try {
+    const content = await fs.readFile(path.join(STATIC_ROOT, "sw.js"), "utf-8");
+    return new Response(content, {
+      headers: { "Content-Type": "application/javascript" },
+    });
+  } catch {
+    return c.text("Service worker not found", 404);
+  }
+});
 
 // Serve static files from packages/web/static/ (built SvelteKit app)
 // Only apply when NOT compiled binary (static files aren't on disk when compiled)
