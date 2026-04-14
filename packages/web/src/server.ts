@@ -31,7 +31,7 @@ import { listAllContainers, dockerAction, incusAction } from "./lib/containers.t
 import { markPriorityDone } from "./lib/priorities.ts";
 import { fetchRecentEmails, markEmailRead } from "./lib/email.ts";
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
-import { indexHTML, isCompiledBinary, manifest, serviceWorker } from "./assets.ts";
+import { indexHTML, isCompiledBinary, manifest, serviceWorker, appleTouchIcon } from "./assets.ts";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -737,6 +737,22 @@ app.get("/sw.js", async (c) => {
     });
   } catch {
     return c.text("Service worker not found", 404);
+  }
+});
+
+app.get("/apple-touch-icon.png", async (c) => {
+  if (isCompiledBinary()) {
+    return new Response(appleTouchIcon, {
+      headers: { "Content-Type": "image/png" },
+    });
+  }
+  try {
+    const content = await fs.readFile(path.join(STATIC_ROOT, "apple-touch-icon.png"));
+    return new Response(content, {
+      headers: { "Content-Type": "image/png" },
+    });
+  } catch {
+    return c.text("Icon not found", 404);
   }
 });
 

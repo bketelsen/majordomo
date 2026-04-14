@@ -22,8 +22,11 @@ export const indexHTML: string = indexHTMLRaw as unknown as string;
 import manifestRaw from '../static/manifest.json' with { type: 'text' };
 // @ts-ignore
 import serviceWorkerRaw from '../static/sw.js' with { type: 'text' };
+// @ts-ignore
+import appleTouchIconRaw from '../static/apple-touch-icon.png' with { type: 'file' };
 export const manifest: string = manifestRaw as unknown as string;
 export const serviceWorker: string = serviceWorkerRaw as unknown as string;
+export const appleTouchIcon: Uint8Array = appleTouchIconRaw as unknown as Uint8Array;
 
 // Default agent definitions (shipped with binary)
 // @ts-ignore

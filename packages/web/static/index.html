@@ -214,6 +214,8 @@
       html, body { overflow-x: hidden; }
       #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; width: 100%; max-width: 100%; overflow-x: hidden; }
       #header { max-width: 100vw; overflow: hidden; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+      #header h1 { min-width: 24px; display: flex; align-items: center; justify-content: center; }
+      #header h1 svg { min-width: 24px; height: 24px; }
       #header h1 span { display: none; /* hide MAJORDOMO text, keep hawk icon */ }
       #tabs { min-width: 0; flex: 1 1 0; overflow-x: auto; }
       .tab { font-size: 11px; padding: 4px 8px; }
