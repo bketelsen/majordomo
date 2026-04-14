@@ -115,7 +115,7 @@ The `src/lib/containers.ts` file is now purely a compatibility shim for legacy c
 
 Build verification:
 ```bash
-cd /home/bjk/projects/sionapi
+cd ~/projects/majordomo
 bun build packages/web/plugins/containers/server.ts --target=node  # ✓ Success
 bun build packages/web/src/lib/containers.ts --target=node         # ✓ Success
 ```
