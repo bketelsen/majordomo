@@ -1,0 +1,24 @@
+[Unit]
+Description=Majordomo Web Dashboard
+Documentation=https://github.com/bjk/majordomo
+After=network.target
+# Note: web server runs in-process with majordomo-agent@.service via service.ts.
+# This unit is kept for cases where you want to run the web dashboard standalone
+# (e.g. pointing at a remote agent over IPC). In the standard single-machine
+# setup, only majordomo-agent@.service needs to be enabled.
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/projects/sionapi
+ExecStart=/home/linuxbrew/.linuxbrew/bin/bun packages/web/src/server.ts
+EnvironmentFile=/home/%i/projects/sionapi/.env
+Environment=MAJORDOMO_WEB_PORT=3001
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=majordomo-web
+
+[Install]
+WantedBy=multi-user.target

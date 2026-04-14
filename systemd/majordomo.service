@@ -1,0 +1,25 @@
+[Unit]
+Description=Majordomo AI Chief-of-Staff
+Documentation=https://github.com/bjk/majordomo
+After=network.target
+
+[Service]
+Type=forking
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.cargo/bin:%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=MAJORDOMO_STATE=%h/.majordomo
+Environment=MAJORDOMO_HOME=%h/.local/share/majordomo
+PIDFile=%h/.majordomo/logs/majordomo.pid
+ExecStart=%h/.local/bin/majordomo start
+ExecStop=%h/.local/bin/majordomo stop
+ExecReload=%h/.local/bin/majordomo restart
+EnvironmentFile=-%h/.majordomo/.env
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=90
+
+# Protect memory and data
+ReadWritePaths=%h/.majordomo
+ReadWritePaths=%h/.local/share/majordomo
+
+[Install]
+WantedBy=default.target

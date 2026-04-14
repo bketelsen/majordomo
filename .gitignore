@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+packages/*/dist/
+
+# Environment files (keep .env.example)
+.env
+*.env.local
+.env.*
+!.env.example
+
+# Runtime state (sessions, databases, scratch)
+data/
+data/scratch/
+
+# COG memory (personal data, never in git)
+memory/
+
+# State home (belt and suspenders)
+~/.majordomo/
+
+# Logs
+*.jsonl
+
+# IDE & OS
+.DS_Store
+.claude/tsc-cache/
+
+# Generated artifacts
+IMPLEMENTATION_SUMMARY.md
+TESTING_CHECKLIST.md
+docs/deployment/

@@ -1,0 +1,269 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Path resolution
+SCRIPT_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+
+# Snapshot explicit env vars so .env files don't clobber them
+EXPLICIT_STATE_HOME="${MAJORDOMO_STATE-}"
+EXPLICIT_PORT="${PORT-}"
+HAVE_EXPLICIT_STATE_HOME=${MAJORDOMO_STATE+x}
+HAVE_EXPLICIT_PORT=${PORT+x}
+
+# Load .env from repo first (lower priority)
+if [[ -f "$REPO_ROOT/.env" ]]; then
+  set -a; source "$REPO_ROOT/.env"; set +a
+fi
+
+# Load state home .env (higher priority)
+MAJORDOMO_STATE="${EXPLICIT_STATE_HOME:-${MAJORDOMO_STATE:-$HOME/.majordomo}}"
+if [[ -f "$MAJORDOMO_STATE/.env" ]]; then
+  set -a; source "$MAJORDOMO_STATE/.env"; set +a
+fi
+
+# Restore explicit values (highest priority)
+[[ -n "$HAVE_EXPLICIT_STATE_HOME" ]] && MAJORDOMO_STATE="$EXPLICIT_STATE_HOME"
+[[ -n "$HAVE_EXPLICIT_PORT" ]] && PORT="$EXPLICIT_PORT"
+
+# Homebrew fallback for non-interactive shells (Bun via Homebrew)
+if ! command -v bun &>/dev/null; then
+  BREW_PREFIX="/home/linuxbrew/.linuxbrew"
+  [[ -x "$BREW_PREFIX/bin/brew" ]] && eval "$($BREW_PREFIX/bin/brew shellenv)"
+fi
+
+# Defaults
+MAJORDOMO_STATE="${MAJORDOMO_STATE:-$HOME/.majordomo}"
+MAJORDOMO_HOME="${MAJORDOMO_HOME:-$HOME/.local/share/majordomo}"
+PORT="${PORT:-3000}"
+STARTUP_TIMEOUT_SEC="${STARTUP_TIMEOUT_SEC:-30}"
+HEALTHCHECK_LOCAL_URL="http://127.0.0.1:${PORT}/healthz"
+
+# Deploy-mode detection
+if [[ -f "$MAJORDOMO_HOME/current/packages/agent/service.ts" ]]; then
+  PROJECT_ROOT="$MAJORDOMO_HOME/current"
+  MODE="deploy"
+else
+  PROJECT_ROOT="$REPO_ROOT"
+  MODE="dev"
+fi
+
+SERVICE_ENTRY="$PROJECT_ROOT/packages/agent/service.ts"
+LOG_DIR="$MAJORDOMO_STATE/logs"
+PID_FILE="$LOG_DIR/majordomo.pid"
+LOG_FILE="$LOG_DIR/majordomo.log"
+MEMORY_ROOT="$MAJORDOMO_STATE/memory"
+DATA_ROOT="$MAJORDOMO_STATE/data"
+CONFIG_ROOT="$MAJORDOMO_STATE/config"
+AGENTS_DIR_USER="$CONFIG_ROOT/agents"
+AGENTS_DIR_DEFAULT="$PROJECT_ROOT/agents"
+WORKFLOWS_DIR_USER="$CONFIG_ROOT/workflows"
+WORKFLOWS_DIR_DEFAULT="$PROJECT_ROOT/workflows"
+PERSONA_FILE="$PROJECT_ROOT/packages/agent/persona/majordomo.md"
+ENV_FILE="$MAJORDOMO_STATE/.env"
+
+if [[ -d "$AGENTS_DIR_USER" ]]; then
+  AGENTS_DIR_RESOLVED="$AGENTS_DIR_USER"
+else
+  AGENTS_DIR_RESOLVED="$AGENTS_DIR_DEFAULT"
+fi
+
+if [[ -d "$WORKFLOWS_DIR_USER" ]]; then
+  WORKFLOWS_DIR_RESOLVED="$WORKFLOWS_DIR_USER"
+else
+  WORKFLOWS_DIR_RESOLVED="$WORKFLOWS_DIR_DEFAULT"
+fi
+
+# Helpers
+log()  { echo "[majordomo] $*"; }
+warn() { echo "[majordomo] WARNING: $*" >&2; }
+die()  { echo "[majordomo] ERROR: $*" >&2; exit 1; }
+
+pid_running() { kill -0 "$1" 2>/dev/null; }
+read_pid() { [[ -f "$PID_FILE" ]] && cat "$PID_FILE"; }
+
+systemd_show() {
+  command -v systemctl &>/dev/null || return 1
+  systemctl --user show majordomo.service --property=MainPID,LoadState,ActiveState,SubState 2>/dev/null
+}
+
+health_check() {
+  local pid=$1 elapsed=0
+  for _ in $(seq 1 "$STARTUP_TIMEOUT_SEC"); do
+    if curl -sf --max-time 2 "$HEALTHCHECK_LOCAL_URL" &>/dev/null; then return 0; fi
+    pid_running "$pid" || return 1
+    elapsed=$((elapsed + 1))
+    (( elapsed % 5 == 0 )) && log "Waiting for health check... ${elapsed}s elapsed"
+    sleep 1
+  done
+  return 1
+}
+
+cmd_start() {
+  [[ -f "$SERVICE_ENTRY" ]] || die "service.ts not found at $SERVICE_ENTRY — run 'majordomo deploy' first"
+  
+  local existing_pid; existing_pid=$(read_pid)
+  [[ -n "$existing_pid" ]] && pid_running "$existing_pid" && die "Already running (PID $existing_pid). Use 'restart'."
+
+  mkdir -p "$LOG_DIR"
+  log "Starting Majordomo in ${MODE} mode (project: $PROJECT_ROOT, port: $PORT)..."
+
+  cd "$PROJECT_ROOT"
+  MAJORDOMO_STATE="$MAJORDOMO_STATE" PORT="$PORT" \
+    nohup bun "$SERVICE_ENTRY" >> "$LOG_FILE" 2>&1 &
+  local pid=$!
+  echo "$pid" > "$PID_FILE"
+
+  log "Process started (PID $pid). Waiting for health check..."
+  if health_check "$pid"; then
+    log "✓ Majordomo is running."
+  else
+    warn "Health check failed after ${STARTUP_TIMEOUT_SEC}s."
+    kill "$pid" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    die "Server did not become healthy. Check $LOG_FILE"
+  fi
+}
+
+cmd_stop() {
+  local pid; pid=$(read_pid)
+  [[ -z "$pid" ]] && { warn "No PID file. Nothing to stop."; return 0; }
+  pid_running "$pid" || { warn "PID $pid not running. Cleaning up."; rm -f "$PID_FILE"; return 0; }
+
+  log "Stopping Majordomo (PID $pid)..."
+  kill -TERM "$pid"
+  for _ in $(seq 1 90); do
+    pid_running "$pid" || { rm -f "$PID_FILE"; log "✓ Stopped."; return 0; }
+    sleep 1
+  done
+  warn "Process did not stop after 90s. SIGKILL..."
+  kill -KILL "$pid" 2>/dev/null || true
+  rm -f "$PID_FILE"
+  log "✒ Killed."
+}
+
+cmd_restart() { cmd_stop; sleep 2; cmd_start; }
+
+cmd_deploy() {
+  bash "$SCRIPT_DIR/deploy.sh" "$@"
+}
+
+cmd_rollback() {
+  [[ -d "$MAJORDOMO_HOME/previous" ]] || die "No previous version to roll back to."
+  log "Rolling back..."
+  local broken="$MAJORDOMO_HOME/broken-$(date +%s)"
+  mv "$MAJORDOMO_HOME/current" "$broken"
+  mv "$MAJORDOMO_HOME/previous" "$MAJORDOMO_HOME/current"
+  log "Rolled back. Broken version saved to: $broken"
+  log "Restart with: majordomo restart"
+}
+
+cmd_status() {
+  local version pid state
+  local load_state="unknown" active_state="unknown" sub_state="unknown" systemd_pid="0"
+  local manager="cli/pid-file"
+  
+  if [[ "$MODE" == "deploy" && -f "$PROJECT_ROOT/VERSION" ]]; then
+    version=$(cat "$PROJECT_ROOT/VERSION")
+  else
+    version=$(grep '"version"' "$PROJECT_ROOT/package.json" 2>/dev/null | grep -oP '(?<="version": ")[^"]+' || echo "dev")
+  fi
+  
+  pid=$(read_pid)
+  if [[ -z "$pid" ]]; then 
+    state="stopped"
+  elif pid_running "$pid"; then 
+    state="running"
+  else 
+    state="zombie (stale PID)"
+  fi
+
+  if mapfile -t _systemd < <(systemd_show); then
+    for line in "${_systemd[@]}"; do
+      case "$line" in
+        MainPID=*) systemd_pid="${line#MainPID=}" ;;
+        LoadState=*) load_state="${line#LoadState=}" ;;
+        ActiveState=*) active_state="${line#ActiveState=}" ;;
+        SubState=*) sub_state="${line#SubState=}" ;;
+      esac
+    done
+  fi
+
+  if [[ "$active_state" == "active" && "$systemd_pid" != "0" ]]; then
+    manager="systemd"
+  fi
+
+  echo "Majordomo v${version}"
+  echo "  State:   $state"
+  [[ -n "$pid" ]] && echo "  PID:     $pid"
+  echo "  Mode:    $MODE"
+  echo "  Port:    $PORT"
+  echo ""
+  echo "Lifecycle:"
+  echo "  Preferred manager:     $manager"
+  echo "  systemd unit:          $load_state / $active_state ($sub_state)"
+  [[ "$systemd_pid" != "0" ]] && echo "  systemd MainPID:       $systemd_pid"
+  if [[ "$manager" == "systemd" && -n "$pid" && "$systemd_pid" != "$pid" ]]; then
+    echo "  Note:                  systemd and PID file disagree — use 'systemctl --user status majordomo' as source of truth"
+  elif [[ "$manager" != "systemd" ]]; then
+    echo "  Note:                  this status reflects the CLI PID/log files. If you started via systemd, check 'systemctl --user status majordomo' too"
+  fi
+  echo ""
+  echo "Resolved paths:"
+  echo "  PROJECT_ROOT:           $PROJECT_ROOT"
+  echo "  MAJORDOMO_STATE:        $MAJORDOMO_STATE"
+  echo "  MEMORY_ROOT:            $MEMORY_ROOT"
+  echo "  DATA_ROOT:              $DATA_ROOT"
+  echo "  CONFIG_ROOT:            $CONFIG_ROOT"
+  echo "  AGENTS_DIR_USER:        $AGENTS_DIR_USER"
+  echo "  AGENTS_DIR_DEFAULT:     $AGENTS_DIR_DEFAULT"
+  echo "  AGENTS_DIR_RESOLVED:    $AGENTS_DIR_RESOLVED"
+  echo "  WORKFLOWS_DIR_USER:     $WORKFLOWS_DIR_USER"
+  echo "  WORKFLOWS_DIR_DEFAULT:  $WORKFLOWS_DIR_DEFAULT"
+  echo "  WORKFLOWS_DIR_RESOLVED: $WORKFLOWS_DIR_RESOLVED"
+  echo "  PERSONA_FILE:           $PERSONA_FILE"
+  echo "  ENV_FILE:               $ENV_FILE"
+  echo "  SERVICE_ENTRY:          $SERVICE_ENTRY"
+  echo "  LOG_FILE:               $LOG_FILE"
+  echo "  PID_FILE:               $PID_FILE"
+}
+
+cmd_logs() {
+  [[ -f "$LOG_FILE" ]] || die "No log file at $LOG_FILE"
+  tail -f "$LOG_FILE"
+}
+
+cmd_dev() {
+  cd "$REPO_ROOT"
+  log "Starting in development mode (running from source)..."
+  MAJORDOMO_STATE="$MAJORDOMO_STATE" PORT="$PORT" \
+    exec bun packages/agent/service.ts
+}
+
+# Dispatch
+case "${1:-help}" in
+  start)    cmd_start ;;
+  stop)     cmd_stop ;;
+  restart)  cmd_restart ;;
+  status)   cmd_status ;;
+  deploy)   shift; cmd_deploy "$@" ;;
+  rollback) cmd_rollback ;;
+  logs)     cmd_logs ;;
+  dev)      cmd_dev ;;
+  setup)    shift; bash "$SCRIPT_DIR/setup.sh" "$@" ;;
+  *)        
+    echo "Usage: majordomo {start|stop|restart|status|deploy|rollback|logs|dev|setup}"
+    echo ""
+    echo "Commands:"
+    echo "  start      Start the Majordomo service"
+    echo "  stop       Stop the Majordomo service"
+    echo "  restart    Restart the service"
+    echo "  status     Show version, PID, and paths"
+    echo "  deploy     Deploy from source repository"
+    echo "  rollback   Swap current ↔ previous deployment"
+    echo "  logs       Tail application logs"
+    echo "  dev        Run from source (development mode)"
+    echo "  setup      First-time installation"
+    exit 1
+    ;;
+esac

@@ -1,0 +1,31 @@
+{
+  "id": "containers",
+  "version": "1.0.0",
+  "name": "Container Manager",
+  "description": "Monitor and control Docker and Incus containers via Unix sockets",
+  "icon": "🐋",
+  
+  "author": {
+    "name": "Majordomo Team"
+  },
+  
+  "permissions": {
+    "socket": [
+      "/var/run/docker.sock",
+      "/var/lib/incus/unix.socket"
+    ],
+    "network": false,
+    "filesystem": {
+      "read": [],
+      "write": []
+    }
+  },
+  
+  "server": "./server.ts",
+  "client": "./client.ts",
+  
+  "config": {
+    "refreshInterval": 30000,
+    "showStoppedContainers": true
+  }
+}

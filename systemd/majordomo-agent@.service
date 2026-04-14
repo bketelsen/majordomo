@@ -1,0 +1,23 @@
+[Unit]
+Description=Majordomo AI Agent
+Documentation=https://github.com/bjk/majordomo
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/projects/sionapi
+ExecStart=/home/linuxbrew/.linuxbrew/bin/bun packages/agent/service.ts
+EnvironmentFile=/home/%i/projects/sionapi/.env
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=majordomo-agent
+
+# Keep memory files accessible
+ReadWritePaths=/home/%i/projects/sionapi/memory
+ReadWritePaths=/home/%i/projects/sionapi/data
+
+[Install]
+WantedBy=multi-user.target

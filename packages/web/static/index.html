@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Majordomo</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --surface2:  #222536;
+      --border:    #2e3148;
+      --accent:    #7c6af7;
+      --accent-dim:#4a4299;
+      --text:      #e4e6f0;
+      --text-dim:  #8a8fa8;
+      --user-bg:   #2a2d3e;
+      --agent-bg:  #1e2132;
+      --success:   #4caf74;
+      --warning:   #f0a74c;
+      --error:     #f06060;
+      --radius:    8px;
+      --font:      "Inter", "Segoe UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; }
+
+    /* ── Layout ───────────────────────────────────────────────────────────── */
+    #app { display: grid; grid-template-rows: auto 1fr; grid-template-columns: 1fr 320px; height: 100vh; overflow: hidden; }
+
+    /* ── Header ───────────────────────────────────────────────────────────── */
+    #header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 48px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    #header h1 { font-size: 15px; font-weight: 700; color: var(--accent); letter-spacing: 0.04em; }
+    #status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+    #status-dot.offline { background: var(--error); }
+    #header-right { margin-left: auto; display: flex; gap: 8px; align-items: center; color: var(--text-dim); font-size: 12px; }
+
+    /* ── Domain tabs ──────────────────────────────────────────────────────── */
+    #tabs { display: flex; gap: 2px; overflow-x: auto; flex: 1; scrollbar-width: none; }
+    .tab { padding: 6px 14px; border-radius: var(--radius); cursor: pointer; font-size: 13px; color: var(--text-dim); white-space: nowrap; transition: all 0.15s; border: 1px solid transparent; }
+    .tab:hover { background: var(--surface2); color: var(--text); }
+    .tab.active { background: var(--accent-dim); color: var(--text); border-color: var(--accent); }
+    .tab-add { padding: 6px 10px; color: var(--text-dim); font-size: 18px; cursor: pointer; border-radius: var(--radius); }
+    .tab-add:hover { color: var(--accent); background: var(--surface2); }
+
+    /* ── Chat pane ────────────────────────────────────────────────────────── */
+    #chat-pane { display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: hidden; }
+
+    #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; scroll-behavior: smooth; }
+    #messages::-webkit-scrollbar { width: 4px; }
+    #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .msg { max-width: 85%; padding: 10px 14px; border-radius: var(--radius); font-size: 14px; line-height: 1.6; }
+    .msg.user   { align-self: flex-end; background: var(--user-bg); border: 1px solid var(--border); }
+    .msg.agent  { align-self: flex-start; background: var(--agent-bg); border: 1px solid var(--border); }
+    .msg.agent.streaming { border-color: var(--accent); box-shadow: 0 0 8px rgba(124,106,247,0.2); }
+    .msg .source { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+
+    /* Markdown-ish styling inside messages */
+    .msg pre { background: rgba(0,0,0,0.3); padding: 8px; border-radius: 4px; overflow-x: auto; margin: 8px 0; font-family: var(--font-mono); font-size: 12px; }
+    .msg code { font-family: var(--font-mono); font-size: 12px; background: rgba(0,0,0,0.3); padding: 1px 4px; border-radius: 3px; }
+    .msg pre code { background: none; padding: 0; }
+    .msg strong { color: var(--text); }
+    .msg em { color: var(--text-dim); }
+
+    /* Thinking + tool activity blocks */
+    .activity-block { align-self: flex-start; width: min(85%, 100%); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; border: 1px solid rgba(124,106,247,0.22); background: rgba(124,106,247,0.06); color: var(--text); }
+    .activity-block.thinking-block { background: rgba(124,106,247,0.08); }
+    .activity-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--accent); }
+    .activity-icon { flex-shrink: 0; }
+    .activity-title { font-family: var(--font-mono); }
+    .activity-status { font-size: 11px; color: var(--text-dim); margin-left: auto; }
+    .activity-subtitle { font-size: 11px; color: var(--text-dim); margin: -3px 0 8px 22px; word-break: break-word; }
+    .activity-section { margin-top: 8px; }
+    .activity-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+    .activity-content { font-family: var(--font-mono); font-size: 11px; color: var(--text); background: rgba(0,0,0,0.28); padding: 6px 8px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; line-height: 1.4; }
+    .activity-spinner { display: inline-block; width: 10px; height: 10px; border: 1.5px solid var(--accent); border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
+    .activity-success { color: var(--success); }
+    .activity-error { color: var(--error); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .typing-dot { display: inline-block; width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: pulse 1.2s ease-in-out infinite; margin: 0 2px; }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes pulse { 0%,80%,100% { opacity: 0.3 } 40% { opacity: 1 } }
+
+    /* ── Input area ───────────────────────────────────────────────────────── */
+    #input-area { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--surface); display: flex; gap: 8px; }
+    #msg-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; color: var(--text); font-family: var(--font); font-size: 14px; resize: none; min-height: 40px; max-height: 120px; outline: none; transition: border-color 0.15s; }
+    #msg-input:focus { border-color: var(--accent); }
+    #msg-input::placeholder { color: var(--text-dim); }
+    #send-btn { padding: 8px 16px; background: var(--accent); border: none; border-radius: var(--radius); color: white; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.15s; }
+    #send-btn:hover { background: #9080ff; }
+    #send-btn:disabled { background: var(--accent-dim); cursor: not-allowed; opacity: 0.6; }
+
+    /* ── Widget panel ─────────────────────────────────────────────────────── */
+    #widget-panel::-webkit-scrollbar { width: 4px; }
+    #widget-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    #widget-panel { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--bg); min-height: 0; }
+    .widget { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .widget-header { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--text-dim); display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+    .widget-header:hover { background: var(--surface2); }
+    .widget-toggle { font-size: 10px; color: var(--text-dim); transition: transform 0.2s; display: inline-block; margin-left: 6px; }
+    .widget.collapsed .widget-toggle { transform: rotate(-90deg); }
+    .widget.collapsed .widget-body { display: none; }
+    .widget.collapsed .widget-header { border-bottom: none; }
+    .widget-body { padding: 10px 12px; font-size: 13px; }
+
+    /* Priorities widget */
+    .priority-item { padding: 5px 0; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-start; }
+    .priority-item:last-child { border-bottom: none; }
+    .pri-badge { font-size: 10px; padding: 2px 6px; border-radius: 10px; white-space: nowrap; margin-top: 2px; }
+    .pri-critical { background: rgba(240,96,96,0.2); color: var(--error); }
+    .pri-high     { background: rgba(240,167,76,0.2); color: var(--warning); }
+    .pri-domain   { font-size: 11px; color: var(--text-dim); }
+    .pri-due      { font-size: 11px; color: var(--text-dim); margin-left: auto; }
+
+    /* Container widget */
+    .container-item { padding: 5px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+    .container-item:last-child { border-bottom: none; }
+    .container-row { display: flex; gap: 8px; align-items: center; }
+    .container-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .container-image { font-size: 11px; color: var(--text-dim); }
+    .status-dot-run { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--success); margin-right:4px; }
+    .status-dot-stop { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--error); margin-right:4px; }
+    .container-badge { font-size: 10px; padding: 1px 5px; border-radius: 8px; background: var(--surface2); color: var(--text-dim); }
+    .action-btn { font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; white-space: nowrap; }
+    .action-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .action-btn.danger:hover { border-color: var(--error); color: var(--error); }
+    .container-ports { font-size: 10px; color: var(--text-dim); }
+
+    /* Subagent runs widget */
+    .run-item { padding: 5px 0; border-bottom: 1px solid var(--border); }
+    .run-item:last-child { border-bottom: none; }
+    .run-header { display: flex; gap: 6px; align-items: center; }
+    .run-agent { font-size: 12px; font-weight: 600; }
+    .run-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; }
+    .run-running { background: rgba(240,167,76,0.2); color: var(--warning); }
+    .run-done    { background: rgba(76,175,116,0.2); color: var(--success); }
+    .run-failed  { background: rgba(240,96,96,0.2); color: var(--error); }
+    .run-preview { font-size: 11px; color: var(--text-dim); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .run-time    { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+
+    /* Schedules widget */
+    .schedule-item { padding: 4px 0; border-bottom: 1px solid var(--border); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .schedule-item:last-child { border-bottom: none; }
+    .schedule-id { font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 80px; }
+    .schedule-cron { font-size: 10px; color: var(--accent); font-family: var(--font-mono); }
+    .schedule-last { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+
+    /* Email widget */
+    .email-item { padding: 5px 0; border-bottom: 1px solid var(--border); }
+    .email-item:last-child { border-bottom: none; }
+    .email-subject { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .email-subject.unread { font-weight: 600; }
+    .email-meta { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+    .email-from { font-size: 11px; color: var(--text-dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .email-date { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+    .email-unread-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+
+    /* Empty state */
+    .empty { color: var(--text-dim); font-size: 13px; padding: 8px 0; text-align: center; }
+
+    /* Refresh button */
+    .refresh-btn { cursor: pointer; color: var(--text-dim); font-size: 12px; transition: color 0.15s, transform 0.15s; user-select: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; }
+    .refresh-btn:hover { color: var(--accent); }
+    .refresh-btn.spinning { animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Modals ───────────────────────────────────────────────────────────── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 400px; max-width: 90vw; }
+    .modal h2 { margin-bottom: 16px; font-size: 16px; }
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+    .field input, .field textarea { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; color: var(--text); font-size: 13px; outline: none; }
+    .field input:focus, .field textarea:focus { border-color: var(--accent); }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    .btn-primary { padding: 7px 16px; background: var(--accent); border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 13px; }
+    .btn-cancel  { padding: 7px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); cursor: pointer; font-size: 13px; }
+
+    /* ── Domain switch suggestion banner ──────────────────────────────────── */
+    #domain-switch-banner { display: none; padding: 10px 16px; background: rgba(124,106,247,0.12); border-bottom: 1px solid var(--accent); align-items: center; gap: 12px; font-size: 13px; animation: slideDown 0.2s ease; }
+    #domain-switch-banner.visible { display: flex; }
+    @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .banner-icon { font-size: 16px; }
+    .banner-text { flex: 1; color: var(--text); }
+    .banner-text strong { color: var(--accent); }
+    .banner-reason { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    .banner-btn { padding: 5px 12px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.15s; background: var(--surface2); color: var(--text); }
+    .banner-btn:hover { background: var(--surface); border-color: var(--accent); }
+    .banner-btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    .banner-btn.primary:hover { background: #9080ff; }
+    .banner-dismiss { cursor: pointer; color: var(--text-dim); font-size: 14px; padding: 0 4px; }
+    .banner-dismiss:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Header -->
+  <header id="header">
+    <span id="status-dot"></span>
+    <h1>🏛 Majordomo</h1>
+    <div id="tabs">
+      <!-- domain tabs rendered by JS -->
+    </div>
+    <button class="tab-add" title="New domain" onclick="openNewDomainModal()">+</button>
+    <div id="header-right">
+      <span>Domain: <strong id="active-domain-badge">general</strong></span>
+      <span id="model-label">···</span>
+    </div>
+  </header>
+
+  <!-- Chat pane -->
+  <main id="chat-pane">
+    <!-- Domain switch suggestion banner -->
+    <div id="domain-switch-banner">
+      <span class="banner-icon">💡</span>
+      <div style="flex: 1;">
+        <div class="banner-text"></div>
+        <div class="banner-reason"></div>
+      </div>
+      <button class="banner-btn primary" onclick="acceptDomainSwitch()">Yes</button>
+      <button class="banner-btn" onclick="declineDomainSwitch()">No</button>
+      <span class="banner-dismiss" onclick="dismissDomainSwitchBanner()">×</span>
+    </div>
+    <div id="messages"></div>
+    <div id="input-area">
+      <textarea id="msg-input" placeholder="Message Majordomo…" rows="1"></textarea>
+      <button id="send-btn">Send</button>
+    </div>
+  </main>
+
+  <!-- Widget panel -->
+  <aside id="widget-panel">
+    <div class="widget" id="widget-priorities">
+      <div class="widget-header" onclick="toggleWidget('widget-priorities')">
+        <span>🔥 Active Priorities</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <span id="pri-updated" style="font-size:10px;font-weight:400"></span>
+          <span class="refresh-btn" onclick="refreshWidget(event, 'priorities')" title="Refresh priorities">↻</span>
+          <span class="widget-toggle">▾</span>
+        </span>
+      </div>
+      <div class="widget-body" id="widget-priorities-body">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+
+    <div class="widget" id="widget-containers">
+      <div class="widget-header" onclick="toggleWidget('widget-containers')">
+        <span>🐋 Containers</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <span id="containers-updated" style="font-size:10px;font-weight:400"></span>
+          <span class="refresh-btn" onclick="refreshWidget(event, 'containers')" title="Refresh containers">↻</span>
+          <span class="widget-toggle">▾</span>
+        </span>
+      </div>
+      <div class="widget-body" id="widget-containers-body">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+
+    <div class="widget" id="widget-subagents">
+      <div class="widget-header" onclick="toggleWidget('widget-subagents')">
+        <span>⚙ Subagent Runs</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <span id="subagents-updated" style="font-size:10px;font-weight:400"></span>
+          <span class="refresh-btn" onclick="refreshWidget(event, 'subagents')" title="Refresh subagent runs">↻</span>
+          <span class="widget-toggle">▾</span>
+        </span>
+      </div>
+      <div class="widget-body" id="widget-subagents-body">
+        <div class="empty">No runs yet</div>
+      </div>
+    </div>
+
+    <div class="widget" id="widget-schedules">
+      <div class="widget-header" onclick="toggleWidget('widget-schedules')">
+        <span>⏰ Schedules</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <span class="refresh-btn" onclick="refreshWidget(event, 'schedules')" title="Refresh schedules">↻</span>
+          <span class="widget-toggle">▾</span>
+        </span>
+      </div>
+      <div class="widget-body" id="widget-schedules-body">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+
+    <div class="widget" id="widget-email">
+      <div class="widget-header" onclick="toggleWidget('widget-email')">
+        <span>📬 Recent Email</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <span id="email-updated" style="font-size:10px;font-weight:400"></span>
+          <span class="refresh-btn" onclick="refreshWidget(event, 'email')" title="Refresh email">↻</span>
+          <span class="widget-toggle">▾</span>
+        </span>
+      </div>
+      <div class="widget-body" id="widget-email-body">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+
+    <div class="widget" id="widget-domains">
+      <div class="widget-header" onclick="toggleWidget('widget-domains')">
+        <span>📂 Domains</span>
+        <span class="widget-toggle">▾</span>
+      </div>
+      <div class="widget-body" id="widget-domains-body">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- New Domain Modal -->
+<div class="modal-overlay" id="new-domain-modal" style="display:none">
+  <div class="modal">
+    <h2>Create New Domain</h2>
+    <div class="field">
+      <label>ID (lowercase, e.g. "fitness" or "work/acme")</label>
+      <input type="text" id="nd-id" placeholder="fitness" />
+    </div>
+    <div class="field">
+      <label>Label</label>
+      <input type="text" id="nd-label" placeholder="Fitness and nutrition tracking" />
+    </div>
+    <div class="field">
+      <label>Type</label>
+      <input type="text" id="nd-type" value="custom" placeholder="personal, work, project, custom" />
+    </div>
+    <div class="field">
+      <label>Trigger keywords (comma-separated)</label>
+      <input type="text" id="nd-triggers" placeholder="fitness, workout, nutrition, health" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeNewDomainModal()">Cancel</button>
+      <button class="btn-primary" onclick="createDomain()">Create</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+
+let activeDomain = 'general';
+let domains = [];
+let messages = {};  // domain -> timeline items from /api/messages
+let streamingText = '';
+let isStreaming = false;
+let evtSource = null;
+
+// ── Plugin system ─────────────────────────────────────────────────────────────
+
+const pluginRegistry = new Map();
+let plugins = [];
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+async function init() {
+  await loadPlugins();
+  await loadDomains();
+  connectSSE();
+  await loadMessages(activeDomain);
+  loadWidget('priorities');
+  loadWidget('containers');
+  loadWidget('subagents');
+  loadWidget('schedules');
+  loadWidget('email');
+  setInterval(() => loadWidget('priorities'), 60000);
+  setInterval(() => loadWidget('containers'), 30000);
+  setInterval(() => loadWidget('subagents'),  10000);
+  setInterval(() => loadWidget('schedules'),  30000);
+  setInterval(() => loadWidget('email'),      300000); // 5 min
+  setupInput();
+}
+
+// ── Plugin loading ────────────────────────────────────────────────────────────
+
+async function loadPlugins() {
+  try {
+    const res = await fetch('/api/plugins');
+    if (!res.ok) {
+      console.warn('[frontend] Plugin API not available, using legacy widgets');
+      return;
+    }
+    
+    const data = await res.json();
+    plugins = data.plugins ?? [];
+
+    // Dynamically import each plugin's client module
+    for (const plugin of plugins) {
+      try {
+        const module = await import(`/plugins/${plugin.id}/client.js`);
+        pluginRegistry.set(plugin.id, {
+          ...plugin,
+          renderer: module.renderer,
+        });
+        
+        // Inject plugin styles if provided
+        if (module.renderer.styles) {
+          injectPluginStyles(plugin.id, module.renderer.styles);
+        }
+        
+        console.log(`[frontend] ✓ Loaded plugin: ${plugin.name}`);
+      } catch (err) {
+        console.error(`[frontend] Failed to load plugin ${plugin.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('[frontend] Failed to load plugins:', err);
+  }
+}
+
+function injectPluginStyles(pluginId, styles) {
+  if (!styles || !styles.trim()) return;
+  
+  const styleEl = document.createElement('style');
+  styleEl.id = `plugin-styles-${pluginId}`;
+  styleEl.textContent = styles;
+  document.head.appendChild(styleEl);
+}
+
+// ── Domains ───────────────────────────────────────────────────────────────────
+
+async function loadDomains() {
+  const res = await fetch('/api/domains').catch(() => null);
+  if (!res?.ok) return;
+  const data = await res.json();
+  domains = data.domains ?? [];
+  activeDomain = data.activeDomain ?? activeDomain;
+  updateActiveDomainBadge(activeDomain);
+  renderTabs();
+  renderDomainWidget();
+}
+
+function renderTabs() {
+  const tabs = document.getElementById('tabs');
+  tabs.innerHTML = domains.map(d => `
+    <div class="tab ${d.id === activeDomain ? 'active' : ''}"
+         onclick="switchDomain('${d.id}')"
+         title="${d.label}">
+      ${d.id}
+    </div>
+  `).join('');
+}
+
+function updateActiveDomainBadge(domain) {
+  const badge = document.getElementById('active-domain-badge');
+  if (badge) badge.textContent = domain;
+}
+
+async function switchDomain(domain) {
+  if (domain === activeDomain) {
+    document.getElementById('messages').innerHTML = '';
+    await loadMessages(domain);
+    return;
+  }
+
+  const res = await fetch(`/api/domains/${domain}/activate`, { method: 'POST' }).catch(() => null);
+  if (!res?.ok) {
+    const err = await res?.json().catch(() => ({ error: 'Could not switch domain' }));
+    alert(err.error ?? 'Could not switch domain');
+    return;
+  }
+
+  activeDomain = domain;
+  updateActiveDomainBadge(domain);
+  renderTabs();
+  renderDomainWidget();
+  document.getElementById('messages').innerHTML = '';
+  await loadMessages(domain);
+}
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+
+async function loadMessages(domain) {
+  const res = await fetch(`/api/messages/${domain}?limit=80`).catch(() => null);
+  if (!res?.ok) return;
+  const data = await res.json();
+  messages[domain] = data.messages ?? [];
+  renderMessages();
+  scrollToBottom();
+}
+
+function renderMessages() {
+  const container = document.getElementById('messages');
+  const msgs = messages[activeDomain] ?? [];
+
+  if (msgs.length === 0) {
+    container.innerHTML = '<div class="empty" style="margin-top:40px">No messages yet. Say hello!</div>';
+    return;
+  }
+
+  container.innerHTML = msgs.map(m => renderMessage(m)).join('');
+}
+
+function roleClass(role) {
+  return role === 'assistant' ? 'agent' : role;
+}
+
+function renderMessage(m) {
+  if (m.kind === 'thinking') return renderThinkingMessage(m);
+  if (m.kind === 'tool_call') return renderToolCallMessage(m);
+
+  const source = m.source ? `<div class="source">${escapeHtml(m.source)}</div>` : '';
+  const text = escapeHtml(m.text || '');
+  const formatted = formatMarkdown(text);
+  return `<div class="msg ${roleClass(m.role)}" data-id="${m.id}">${source}${formatted}</div>`;
+}
+
+function renderThinkingMessage(m) {
+  return `
+    <div class="activity-block thinking-block" data-id="${m.id}">
+      <div class="activity-head">
+        <span class="activity-icon">💭</span>
+        <span class="activity-title">Thinking</span>
+      </div>
+      <div class="activity-content">${escapeHtml(m.text || '')}</div>
+    </div>
+  `;
+}
+
+function renderToolCallMessage(m) {
+  const subtitle = getToolSubtitle(m.toolName, m.args);
+  const status = m.status || 'success';
+  const icon = status === 'error' ? '✗' : status === 'success' ? '✓' : '▸';
+  const statusText = status === 'error' ? 'error' : status === 'success' ? 'done' : 'running';
+  const statusClass = status === 'error' ? 'activity-error' : status === 'success' ? 'activity-success' : '';
+  const bodyParts = [];
+
+  if (subtitle) {
+    bodyParts.push(`<div class="activity-subtitle">${escapeHtml(subtitle)}</div>`);
+  }
+
+  if (m.args) {
+    bodyParts.push(`
+      <div class="activity-section">
+        <div class="activity-label">Arguments</div>
+        <div class="activity-content">${escapeHtml(JSON.stringify(m.args, null, 2))}</div>
+      </div>
+    `);
+  }
+
+  if (m.resultText) {
+    bodyParts.push(`
+      <div class="activity-section">
+        <div class="activity-label">Result</div>
+        <div class="activity-content">${escapeHtml(m.resultText)}</div>
+      </div>
+    `);
+  }
+
+  return `
+    <div class="activity-block tool-card" data-id="${m.id}" data-tool="${escapeHtml(m.toolName || 'tool')}">
+      <div class="activity-head">
+        <span class="activity-icon ${statusClass}">${icon}</span>
+        <span class="activity-title">${escapeHtml(m.toolName || 'tool')}</span>
+        ${status === 'running' ? '<span class="activity-spinner"></span>' : ''}
+        <span class="activity-status ${statusClass}">${statusText}</span>
+      </div>
+      ${bodyParts.join('')}
+    </div>
+  `;
+}
+
+function appendMessage(msg) {
+  if (!messages[activeDomain]) messages[activeDomain] = [];
+  messages[activeDomain].push(msg);
+
+  const container = document.getElementById('messages');
+  const empty = container.querySelector('.empty');
+  if (empty) empty.remove();
+
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = renderMessage(msg);
+  const el = wrapper.firstElementChild;
+  if (el) container.appendChild(el);
+  scrollToBottom();
+}
+
+function updateStreamingMessage(delta) {
+  streamingText += delta;
+  // Clear any active thinking block when text starts flowing
+  const thinkingEl = document.getElementById('streaming-thinking');
+  if (thinkingEl) thinkingEl.remove();
+  thinkingText = '';
+
+  let streamEl = document.getElementById('streaming-msg');
+  if (!streamEl) {
+    const container = document.getElementById('messages');
+    streamEl = document.createElement('div');
+    streamEl.id = 'streaming-msg';
+    streamEl.className = 'msg agent streaming';
+    container.appendChild(streamEl);
+  }
+  streamEl.innerHTML = formatMarkdown(escapeHtml(streamingText));
+  scrollToBottom();
+}
+
+let thinkingText = '';
+
+function updateThinkingBlock(delta) {
+  thinkingText += delta;
+  let block = document.getElementById('streaming-thinking');
+  if (!block) {
+    const container = document.getElementById('messages');
+    block = document.createElement('div');
+    block.id = 'streaming-thinking';
+    block.className = 'activity-block thinking-block';
+    block.innerHTML = `
+      <div class="activity-head">
+        <span class="activity-icon">💭</span>
+        <span class="activity-title">Thinking</span>
+        <span class="activity-spinner"></span>
+      </div>
+      <div class="activity-content"></div>`;
+    container.appendChild(block);
+  }
+  block.querySelector('.activity-content').textContent = thinkingText;
+  scrollToBottom();
+}
+
+function addToolCall(toolName, args) {
+  const container = document.getElementById('messages');
+  const cardId = `tool-${toolName}-${Date.now()}`;
+  const subtitle = getToolSubtitle(toolName, args);
+
+  const card = document.createElement('div');
+  card.className = 'activity-block tool-card';
+  card.id = cardId;
+  card.dataset.tool = toolName;
+
+  const parts = [
+    `<div class="activity-head"><span class="activity-icon">▸</span><span class="activity-title">${escapeHtml(toolName)}</span><span class="activity-spinner"></span><span class="activity-status">running</span></div>`
+  ];
+
+  if (subtitle) parts.push(`<div class="activity-subtitle">${escapeHtml(subtitle)}</div>`);
+  if (args) {
+    parts.push(`
+      <div class="activity-section">
+        <div class="activity-label">Arguments</div>
+        <div class="activity-content">${escapeHtml(JSON.stringify(args, null, 2))}</div>
+      </div>
+    `);
+  }
+
+  card.innerHTML = parts.join('');
+  container.appendChild(card);
+  scrollToBottom();
+}
+
+function getToolSubtitle(toolName, args) {
+  if (!args) return '';
+  
+  // Bash tool - show command
+  if (args.command) return args.command;
+  
+  // File operations - show path
+  if (args.file_path) return args.file_path;
+  if (args.path) return args.path;
+  
+  // Query-based tools
+  if (args.query) return args.query;
+  
+  // Find first string value
+  for (const key in args) {
+    const val = args[key];
+    if (typeof val === 'string' && val.length > 0 && val.length < 100) {
+      return val;
+    }
+  }
+  
+  return '';
+}
+
+function toggleToolCard(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+}
+
+function finalizeToolCall(toolName, isError) {
+  const cards = [...document.querySelectorAll(`.tool-card[data-tool="${toolName}"]`)];
+  const card = cards[cards.length - 1];
+  if (!card) return;
+
+  const iconEl = card.querySelector('.activity-icon');
+  const spinner = card.querySelector('.activity-spinner');
+  const statusEl = card.querySelector('.activity-status');
+
+  if (iconEl) {
+    iconEl.textContent = isError ? '✗' : '✓';
+    iconEl.classList.toggle('activity-error', !!isError);
+    iconEl.classList.toggle('activity-success', !isError);
+  }
+
+  if (statusEl) {
+    statusEl.textContent = isError ? 'error' : 'done';
+    statusEl.classList.toggle('activity-error', !!isError);
+    statusEl.classList.toggle('activity-success', !isError);
+  }
+
+  if (spinner) spinner.remove();
+}
+
+function finalizeStreaming(fullText) {
+  const streamEl = document.getElementById('streaming-msg');
+  if (streamEl) streamEl.remove();
+  // Clean up thinking block and any running tool calls
+  const thinkingEl = document.getElementById('streaming-thinking');
+  if (thinkingEl) {
+    thinkingEl.removeAttribute('id');
+    thinkingEl.querySelector('.activity-spinner')?.remove();
+  }
+  document.querySelectorAll('.tool-card .activity-spinner').forEach(s => s.remove());
+  thinkingText = '';
+
+  appendMessage({
+    id: `a-${Date.now()}`,
+    role: 'assistant',
+    text: fullText,
+    timestamp: Date.now(),
+  });
+
+  streamingText = '';
+  isStreaming = false;
+  setSendEnabled(true);
+}
+
+// ── Send message ──────────────────────────────────────────────────────────────
+
+async function sendMessage(text) {
+  if (!text.trim() || isStreaming) return;
+
+  isStreaming = true;
+  setSendEnabled(false);
+
+  // Optimistically add user message
+  appendMessage({ id: `u-${Date.now()}`, role: 'user', text, timestamp: Date.now() });
+
+  // Show typing dots
+  const container = document.getElementById('messages');
+  const typing = document.createElement('div');
+  typing.id = 'typing-indicator';
+  typing.className = 'msg agent';
+  typing.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+  container.appendChild(typing);
+  scrollToBottom();
+
+  const res = await fetch(`/api/messages/${activeDomain}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  }).catch(() => null);
+
+  // Remove typing dots (SSE token stream will replace them)
+  const typingEl = document.getElementById('typing-indicator');
+  if (typingEl) typingEl.remove();
+
+  if (!res?.ok) {
+    const err = await res?.json().catch(() => ({ error: 'Request failed' }));
+    appendMessage({ id: `e-${Date.now()}`, role: 'agent', text: `❌ ${err.error ?? 'Request failed'}`, timestamp: Date.now() });
+    isStreaming = false;
+    setSendEnabled(true);
+  }
+}
+
+// ── Domain switch suggestion banner ──────────────────────────────────────────
+
+let suggestedDomain = null;
+let bannerTimeout = null;
+
+function showDomainSwitchBanner(from, to, reason) {
+  const banner = document.getElementById('domain-switch-banner');
+  const textEl = banner.querySelector('.banner-text');
+  const reasonEl = banner.querySelector('.banner-reason');
+
+  suggestedDomain = to;
+
+  textEl.innerHTML = `Switch to <strong>${escapeHtml(to)}</strong> domain?`;
+  reasonEl.textContent = reason;
+
+  banner.classList.add('visible');
+
+  // Auto-dismiss after 30 seconds
+  if (bannerTimeout) clearTimeout(bannerTimeout);
+  bannerTimeout = setTimeout(() => {
+    dismissDomainSwitchBanner();
+  }, 30000);
+}
+
+function dismissDomainSwitchBanner() {
+  const banner = document.getElementById('domain-switch-banner');
+  banner.classList.remove('visible');
+  suggestedDomain = null;
+  if (bannerTimeout) {
+    clearTimeout(bannerTimeout);
+    bannerTimeout = null;
+  }
+}
+
+function acceptDomainSwitch() {
+  if (!suggestedDomain) return;
+  dismissDomainSwitchBanner();
+  
+  const domain = suggestedDomain;
+  const input = document.getElementById('msg-input');
+  input.value = `yes, switch to ${domain}`;
+  sendMessage(input.value);
+  input.value = '';
+}
+
+function declineDomainSwitch() {
+  dismissDomainSwitchBanner();
+  
+  const input = document.getElementById('msg-input');
+  input.value = 'no, stay in current domain';
+  sendMessage(input.value);
+  input.value = '';
+}
+
+// ── SSE connection ────────────────────────────────────────────────────────────
+
+function connectSSE() {
+  if (evtSource) evtSource.close();
+
+  const dot = document.getElementById('status-dot');
+  evtSource = new EventSource(`/sse`);
+
+  evtSource.onopen = () => {
+    dot.className = '';  // green
+  };
+
+  evtSource.onerror = () => {
+    dot.className = 'offline';
+    setTimeout(connectSSE, 3000); // reconnect
+  };
+
+  evtSource.onmessage = (e) => {
+    let payload;
+    try { payload = JSON.parse(e.data); } catch { return; }
+
+    const { event, data } = payload;
+
+    switch (event) {
+      case 'agent:token':
+        if (data.domain === activeDomain) {
+          const typing = document.getElementById('typing-indicator');
+          if (typing) typing.remove();
+          updateStreamingMessage(data.delta);
+        }
+        break;
+
+      case 'agent:thinking':
+        if (data.domain === activeDomain) {
+          const typing2 = document.getElementById('typing-indicator');
+          if (typing2) typing2.remove();
+          updateThinkingBlock(data.delta);
+        }
+        break;
+
+      case 'agent:tool_start':
+        if (data.domain === activeDomain) addToolCall(data.toolName, data.args);
+        break;
+
+      case 'agent:tool_end':
+        if (data.domain === activeDomain) finalizeToolCall(data.toolName, data.isError);
+        break;
+
+      case 'agent:done':
+        if (data.domain === activeDomain) finalizeStreaming(data.text);
+        break;
+
+      case 'agent:error':
+        if (data.domain === activeDomain) {
+          finalizeStreaming(`❌ ${data.error}`);
+        }
+        break;
+
+      case 'domain:created':
+        loadDomains();
+        break;
+
+      case 'domain:deleted':
+        loadDomains();
+        if (activeDomain === data.id) switchDomain('general');
+        break;
+
+      case 'domain:switched':
+        activeDomain = data.domain;
+        updateActiveDomainBadge(activeDomain);
+        renderTabs();
+        renderDomainWidget();
+        document.getElementById('messages').innerHTML = '';
+        loadMessages(activeDomain);
+        break;
+
+      case 'domain:switch_suggested':
+        showDomainSwitchBanner(data.from, data.to, data.reason);
+        break;
+    }
+  };
+}
+
+// ── Widgets ───────────────────────────────────────────────────────────────────
+
+async function loadWidget(name) {
+  const res = await fetch(`/api/widgets/${name}`).catch(() => null);
+  if (!res?.ok) return;
+  const data = await res.json();
+
+  // Check if this is a plugin-based widget
+  const plugin = pluginRegistry.get(name);
+  if (plugin && plugin.renderer) {
+    renderPluginWidget(name, plugin, data.data);
+  } else {
+    // Fallback to legacy rendering
+    if (name === 'priorities') renderPrioritiesWidget(data.data);
+    if (name === 'containers') renderContainersWidget(data.data);
+    if (name === 'subagents')  renderSubagentsWidget(data.data);
+    if (name === 'schedules')  renderSchedulesWidget(data.data);
+    if (name === 'email')      renderEmailWidget(data.data);
+  }
+}
+
+function renderPluginWidget(name, plugin, data) {
+  const bodyId = `widget-${name}-body`;
+  const body = document.getElementById(bodyId);
+  if (!body) return;
+
+  // Call unmount if it exists and element was previously mounted
+  if (plugin.renderer.unmount && body.__mounted) {
+    try {
+      plugin.renderer.unmount(body);
+    } catch (err) {
+      console.error(`[plugin] Unmount error for ${name}:`, err);
+    }
+    body.__mounted = false;
+  }
+
+  // Render
+  try {
+    body.innerHTML = plugin.renderer.render(data, plugin.config || {});
+  } catch (err) {
+    console.error(`[plugin] Render error for ${name}:`, err);
+    body.innerHTML = `<div class="empty" style="color:var(--error)">Plugin render error</div>`;
+    return;
+  }
+
+  // Call mount if it exists
+  if (plugin.renderer.mount) {
+    try {
+      plugin.renderer.mount(body, data, plugin.config || {});
+      body.__mounted = true;
+    } catch (err) {
+      console.error(`[plugin] Mount error for ${name}:`, err);
+    }
+  }
+}
+
+function renderPrioritiesWidget(data) {
+  const body = document.getElementById('widget-priorities-body');
+  const updated = document.getElementById('pri-updated');
+
+  if (data?.updatedAt) {
+    const d = new Date(data.updatedAt);
+    updated.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  const items = data?.items ?? [];
+  if (items.length === 0) {
+    body.innerHTML = '<div class="empty">No high-priority items 🎉</div>';
+    return;
+  }
+
+  body.innerHTML = items.map(item => `
+    <div class="priority-item">
+      <span class="pri-badge pri-${item.priority}">${item.priority}</span>
+      <div style="flex:1">
+        <div>${escapeHtml(item.task)}</div>
+        <div class="pri-domain">${item.domain}</div>
+      </div>
+      ${item.due ? `<span class="pri-due">${item.due}</span>` : ''}
+      <button class="action-btn" onclick="markPriorityDone('${escapeHtml(item.domain)}','${escapeHtml(item.task).replace(/'/g, "&#39;")}')" title="Mark done">✓</button>
+    </div>
+  `).join('');
+}
+
+async function markPriorityDone(domain, task) {
+  const res = await fetch('/api/priorities/done', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ domain, task }),
+  }).catch(() => null);
+  if (res?.ok) {
+    loadWidget('priorities');
+  } else {
+    const err = await res?.json().catch(() => ({}));
+    alert('Could not mark done: ' + (err?.error ?? 'unknown error'));
+  }
+}
+
+function renderContainersWidget(data) {
+  const body = document.getElementById('widget-containers-body');
+  const updated = document.getElementById('containers-updated');
+  if (data?.updatedAt) updated.textContent = new Date(data.updatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+  const containers = data?.containers ?? [];
+  if (containers.length === 0) {
+    body.innerHTML = '<div class="empty">No containers found</div>'; return;
+  }
+
+  body.innerHTML = containers.map(c => {
+    const dot = c.running ? '<span class="status-dot-run"></span>' : '<span class="status-dot-stop"></span>';
+    const badge = `<span class="container-badge">${c.runtime}</span>`;
+    const ports = c.ports.length ? `<div class="container-ports">${c.ports.slice(0,3).join(' · ')}</div>` : '';
+    const stopBtn = c.running
+      ? `<button class="action-btn danger" onclick="containerAction('${c.runtime}','${c.id}','stop')">Stop</button>`
+      : `<button class="action-btn" onclick="containerAction('${c.runtime}','${c.id}','start')">Start</button>`;
+    return `
+      <div class="container-item">
+        <div class="container-row">
+          ${dot}<span class="container-name" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</span>
+          ${badge}${stopBtn}
+        </div>
+        <div class="container-image">${escapeHtml(c.image)} · ${escapeHtml(c.status)}</div>
+        ${ports}
+      </div>`;
+  }).join('');
+}
+
+async function containerAction(runtime, id, action) {
+  const res = await fetch(`/api/containers/${runtime}/${id}/${action}`, { method: 'POST' }).catch(() => null);
+  if (res?.ok) setTimeout(() => loadWidget('containers'), 1500);
+  else alert(`Failed to ${action} container`);
+}
+
+function renderSubagentsWidget(data) {
+  const body = document.getElementById('widget-subagents-body');
+  const updated = document.getElementById('subagents-updated');
+  if (data?.updatedAt) updated.textContent = new Date(data.updatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+  const runs = (data?.runs ?? []).slice(0, 8);
+  if (runs.length === 0) {
+    body.innerHTML = '<div class="empty">No runs yet</div>'; return;
+  }
+
+  body.innerHTML = runs.map(r => {
+    const icon = r.status === 'done' ? '✅' : r.status === 'failed' ? '❌' : '⏳';
+    const age = Math.round((Date.now() - r.startedAt) / 1000);
+    const ageStr = age < 60 ? `${age}s` : age < 3600 ? `${Math.round(age/60)}m` : `${Math.round(age/3600)}h`;
+    const preview = r.outputPreview ? `<div class="run-preview">${escapeHtml(r.outputPreview.slice(0,80))}</div>` : '';
+    const errPreview = r.error ? `<div class="run-preview" style="color:var(--error)">${escapeHtml(r.error.slice(0,80))}</div>` : '';
+    return `
+      <div class="run-item">
+        <div class="run-header">
+          ${icon} <span class="run-agent">${escapeHtml(r.agent)}</span>
+          <span class="run-badge run-${r.status}">${r.status}</span>
+          <span class="run-time">${ageStr} ago</span>
+        </div>
+        ${preview}${errPreview}
+      </div>`;
+  }).join('');
+}
+
+function renderSchedulesWidget(data) {
+  const body = document.getElementById('widget-schedules-body');
+  const jobs = data?.jobs ?? [];
+  if (jobs.length === 0) {
+    body.innerHTML = '<div class="empty">No schedules</div>'; return;
+  }
+  body.innerHTML = jobs.map(j => {
+    const lastRan = j.lastRan ? new Date(j.lastRan).toLocaleDateString([], {month:'short',day:'numeric'}) : 'never';
+    const triggerBtn = `<button class="action-btn" title="Trigger now" onclick="triggerSchedule('${j.id}')">▶</button>`;
+    const disabled = j.enabled ? '' : ' style="opacity:0.4"';
+    return `
+      <div class="schedule-item"${disabled}>
+        <span class="schedule-id" title="${escapeHtml(j.action)}">${escapeHtml(j.id)}</span>
+        <span class="schedule-cron">${escapeHtml(j.cron)}</span>
+        <span class="schedule-last">${lastRan}</span>
+        ${triggerBtn}
+      </div>`;
+  }).join('');
+}
+
+async function triggerSchedule(jobId) {
+  const res = await fetch(`/api/schedules/${jobId}/trigger`, { method: 'POST' }).catch(() => null);
+  if (res?.ok) {
+    const d = await res.json();
+    if (d.triggered) alert(`Job '${jobId}' triggered — check chat for response`);
+  } else {
+    alert('Failed to trigger job');
+  }
+}
+
+function renderEmailWidget(data) {
+  const body = document.getElementById('widget-email-body');
+  const updated = document.getElementById('email-updated');
+  if (data?.updatedAt) updated.textContent = new Date(data.updatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+  if (!data?.configured) {
+    body.innerHTML = '<div class="empty" style="font-size:11px">Set IMAP_HOST, IMAP_USER, IMAP_PASSWORD<br>in .env to enable</div>';
+    return;
+  }
+
+  const msgs = data?.messages ?? [];
+  if (msgs.length === 0) {
+    body.innerHTML = '<div class="empty">No recent email</div>'; return;
+  }
+
+  body.innerHTML = msgs.slice(0, 8).map(m => {
+    const unread = !m.read;
+    const dot = unread ? '<span class="email-unread-dot"></span>' : '';
+    const markBtn = unread
+      ? `<button class="action-btn" onclick="markEmailRead(${m.uid})" title="Mark read">&#10003;</button>`
+      : '';
+    return `
+      <div class="email-item">
+        <div class="email-subject ${unread ? 'unread' : ''}">${escapeHtml(m.subject)}</div>
+        <div class="email-meta">
+          ${dot}
+          <span class="email-from">${escapeHtml(m.from)}</span>
+          <span class="email-date">${escapeHtml(m.date)}</span>
+          ${markBtn}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function markEmailRead(uid) {
+  await fetch(`/api/email/${uid}/read`, { method: 'POST' }).catch(() => null);
+  setTimeout(() => loadWidget('email'), 500);
+}
+
+function renderDomainWidget() {
+  const body = document.getElementById('widget-domains-body');
+  if (domains.length === 0) { body.innerHTML = '<div class="empty">No domains</div>'; return; }
+  body.innerHTML = domains.map(d => `
+    <div style="padding:4px 0;cursor:pointer;color:${d.id===activeDomain?'var(--accent)':'var(--text)'}"
+         onclick="switchDomain('${d.id}')">
+      ${d.id} <span style="color:var(--text-dim);font-size:12px">— ${escapeHtml(d.label)}</span>
+    </div>
+  `).join('');
+}
+
+// ── New domain modal ──────────────────────────────────────────────────────────
+
+function openNewDomainModal() { document.getElementById('new-domain-modal').style.display='flex'; }
+function closeNewDomainModal() { document.getElementById('new-domain-modal').style.display='none'; }
+
+async function createDomain() {
+  const id = document.getElementById('nd-id').value.trim();
+  const label = document.getElementById('nd-label').value.trim();
+  const type = document.getElementById('nd-type').value.trim() || 'custom';
+  const triggers = document.getElementById('nd-triggers').value.split(',').map(t=>t.trim()).filter(Boolean);
+
+  if (!id || !label) return alert('ID and label are required');
+
+  // Ask Majordomo to create the domain (sends via POST to general domain)
+  const text = `Create a new domain with id "${id}", label "${label}", type "${type}", and trigger keywords: ${triggers.join(', ') || 'none'}.`;
+
+  closeNewDomainModal();
+  await sendMessage(text);
+}
+
+// ── Input handling ────────────────────────────────────────────────────────────
+
+function setupInput() {
+  const input = document.getElementById('msg-input');
+  const btn = document.getElementById('send-btn');
+
+  btn.onclick = () => {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    input.style.height = 'auto';
+    sendMessage(text);
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      btn.click();
+    }
+  });
+
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  });
+}
+
+function setSendEnabled(enabled) {
+  document.getElementById('send-btn').disabled = !enabled;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function scrollToBottom() {
+  const el = document.getElementById('messages');
+  el.scrollTop = el.scrollHeight;
+}
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatMarkdown(text) {
+  // Very basic Markdown rendering (no external deps)
+  return text
+    // Code blocks
+    .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // Bold
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    // Italic
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    // Headers
+    .replace(/^### (.+)$/gm, '<strong>$1</strong>')
+    .replace(/^## (.+)$/gm, '<strong style="font-size:15px">$1</strong>')
+    .replace(/^# (.+)$/gm, '<strong style="font-size:16px">$1</strong>')
+    // Bullet points
+    .replace(/^[-*] (.+)$/gm, '• $1')
+    // Line breaks
+    .replace(/\n/g, '<br>');
+}
+
+// ── Widget collapse & refresh ────────────────────────────────────────────────
+
+function toggleWidget(id) {
+  const widget = document.getElementById(id);
+  if (!widget) return;
+  widget.classList.toggle('collapsed');
+  // Persist state
+  const collapsed = [...document.querySelectorAll('.widget.collapsed')].map(w => w.id);
+  localStorage.setItem('collapsed-widgets', JSON.stringify(collapsed));
+}
+
+async function refreshWidget(event, widgetName) {
+  // Prevent header click from toggling collapse
+  event.stopPropagation();
+  
+  // Add spinning animation to the clicked button
+  const btn = event.target;
+  if (btn.classList.contains('spinning')) return; // Already refreshing
+  
+  btn.classList.add('spinning');
+  
+  try {
+    await loadWidget(widgetName);
+  } catch (err) {
+    console.error('Failed to refresh widget:', widgetName, err);
+  } finally {
+    // Remove spinning animation after a minimum duration to ensure visibility
+    setTimeout(() => btn.classList.remove('spinning'), 300);
+  }
+}
+
+function restoreWidgetState() {
+  try {
+    const collapsed = JSON.parse(localStorage.getItem('collapsed-widgets') ?? '[]');
+    for (const id of collapsed) {
+      const widget = document.getElementById(id);
+      if (widget) widget.classList.add('collapsed');
+    }
+  } catch { /* ignore */ }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+restoreWidgetState();
+init();
+</script>
+
+</body>
+</html>

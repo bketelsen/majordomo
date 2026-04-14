@@ -1,0 +1,32 @@
+name: research-to-implementation
+description: Research a topic, design it, implement it, and validate with QA
+
+steps:
+  - id: research
+    agent: researcher
+    input:
+      query: "{{workflow.input.topic}}"
+      depth: "{{workflow.input.depth}}"
+      context: "{{workflow.input.context}}"
+
+  - id: architect
+    agent: architect
+    depends_on: research
+    input:
+      findings: "{{steps.research.output}}"
+
+  - id: implement
+    agent: developer
+    depends_on: architect
+    input:
+      design: "{{steps.architect.output}}"
+
+  - id: validate
+    agent: qa
+    depends_on: implement
+    input:
+      implementation: "{{steps.implement.output}}"
+      files_changed: "{{steps.implement.output.files_changed}}"
+
+on_complete:
+  notify: true

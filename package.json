@@ -1,0 +1,14 @@
+{
+  "name": "majordomo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "bootstrap": "bun packages/agent/scripts/bootstrap.ts",
+    "agent": "bun packages/agent/main.ts",
+    "agent:domain": "bun packages/agent/main.ts --domain",
+    "service": "bun packages/agent/service.ts",
+    "web": "bun packages/web/src/server.ts"
+  }
+}
