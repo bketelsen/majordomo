@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "majordomo",
+      "devDependencies": {
+        "typescript": "^6.0.2",
+      },
     },
     "packages/agent": {
       "name": "@majordomo/agent",

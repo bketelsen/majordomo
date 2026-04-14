@@ -6,9 +6,10 @@
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
 
-const PROJECT_ROOT = process.cwd();
-const MEMORY_ROOT = path.join(PROJECT_ROOT, "memory");
-const DATA_ROOT = path.join(PROJECT_ROOT, "data");
+const HOME = process.env.HOME ?? "/root";
+const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");
+const MEMORY_ROOT = path.join(MAJORDOMO_STATE, "memory");
+const DATA_ROOT = path.join(MAJORDOMO_STATE, "data");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -21,8 +22,8 @@ async function writeIfNotExists(filePath: string, content: string): Promise<{ cr
 }
 
 function log(msg: string) { console.log(msg); }
-function created(filePath: string) { log(`  ✓  ${path.relative(PROJECT_ROOT, filePath)}`); }
-function skipped(filePath: string) { log(`  -  ${path.relative(PROJECT_ROOT, filePath)} (already exists)`); }
+function created(filePath: string) { log(`  ✓  ${path.relative(MAJORDOMO_STATE, filePath)}`); }
+function skipped(filePath: string) { log(`  -  ${path.relative(MAJORDOMO_STATE, filePath)} (already exists)`); }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 

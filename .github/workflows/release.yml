@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build linux-x64
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build linux-x64 binary
+        run: |
+          mkdir -p dist
+          bun build packages/agent/service.ts \
+            --compile \
+            --target=bun-linux-x64 \
+            --outfile=dist/majordomo-linux-x64
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: majordomo-linux-x64
+          path: dist/majordomo-linux-x64
+
+  build-darwin:
+    name: Build darwin-arm64
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build darwin-arm64 binary
+        run: |
+          mkdir -p dist
+          bun build packages/agent/service.ts \
+            --compile \
+            --target=bun-darwin-arm64 \
+            --outfile=dist/majordomo-darwin-arm64
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: majordomo-darwin-arm64
+          path: dist/majordomo-darwin-arm64
+
+  release:
+    name: Create Release
+    needs: [build-linux, build-darwin]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download linux binary
+        uses: actions/download-artifact@v4
+        with:
+          name: majordomo-linux-x64
+          path: dist/
+      - name: Download darwin binary
+        uses: actions/download-artifact@v4
+        with:
+          name: majordomo-darwin-arm64
+          path: dist/
+      - name: Make binaries executable
+        run: chmod +x dist/majordomo-*
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "CHANGELOG=Initial release of Majordomo 🏛" >> $GITHUB_OUTPUT
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD)
+            echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+            echo "$CHANGELOG" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/majordomo-linux-x64
+            dist/majordomo-darwin-arm64
+          body: |
+            ## Majordomo ${{ github.ref_name }}
+
+            Personal AI chief-of-staff — web dashboard, domain-aware memory, subagent orchestration.
+
+            ## Installation
+
+            ### Prerequisites
+            - [`pi`](https://github.com/badlogic/pi-mono) — the underlying agent runtime
+            - GitHub Copilot subscription (or Anthropic/OpenAI API key)
+
+            ### Quick install
+
+            **Linux (x64):**
+            ```bash
+            curl -L https://github.com/bketelsen/majordomo/releases/download/${{ github.ref_name }}/majordomo-linux-x64 \
+              -o majordomo && chmod +x majordomo && ./majordomo setup
+            ```
+
+            **macOS (Apple Silicon):**
+            ```bash
+            curl -L https://github.com/bketelsen/majordomo/releases/download/${{ github.ref_name }}/majordomo-darwin-arm64 \
+              -o majordomo && chmod +x majordomo && ./majordomo setup
+            ```
+
+            ## Changes
+
+            ${{ steps.changelog.outputs.CHANGELOG }}
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

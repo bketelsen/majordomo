@@ -9,6 +9,10 @@
     "agent": "bun packages/agent/main.ts",
     "agent:domain": "bun packages/agent/main.ts --domain",
     "service": "bun packages/agent/service.ts",
-    "web": "bun packages/web/src/server.ts"
+    "web": "bun packages/web/src/server.ts",
+    "test": "bun test packages/agent/tests/"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
   }
 }

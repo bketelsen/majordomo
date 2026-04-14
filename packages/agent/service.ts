@@ -19,6 +19,7 @@ import { DomainContextManager, sharedEventBus } from "./lib/domain-context-manag
 import { TelegramBot } from "./lib/telegram-bot.ts";
 import { runPersonaWizardIfNeeded } from "./lib/persona-wizard.ts";
 import { app as webApp, PORT as WEB_PORT, webEvents } from "../web/src/server.ts";
+import { isCompiledBinary, defaultAgents, defaultWorkflows, personaContent } from "../web/src/assets.ts";
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ const WORKFLOWS_DIR_USER = path.join(CONFIG_ROOT, "workflows");
 const WORKFLOWS_DIR_DEFAULT = path.join(PROJECT_ROOT, "workflows");
 
 // Persona file (always from project root)
-const PERSONA_FILE = path.join(PROJECT_ROOT, "packages", "agent", "persona", "majordomo.md");
+// const PERSONA_FILE = path.join(PROJECT_ROOT, "packages", "agent", "persona", "majordomo.md");
 
 // ── Sanity checks ─────────────────────────────────────────────────────────────
 
@@ -54,8 +55,48 @@ const resolveConfigDir = async (userDir: string, defaultDir: string): Promise<st
   }
 };
 
+// Write embedded defaults when running as compiled binary
+async function writeEmbeddedDefaults(
+  configRoot: string,
+  agents: Record<string, string>,
+  workflows: Record<string, string>
+): Promise<void> {
+  const agentsDir = path.join(configRoot, 'agents');
+  const workflowsDir = path.join(configRoot, 'workflows');
+  await fs.mkdir(agentsDir, { recursive: true });
+  await fs.mkdir(workflowsDir, { recursive: true });
+  
+  for (const [name, content] of Object.entries(agents)) {
+    const file = path.join(agentsDir, `${name}.md`);
+    const exists = await fs.access(file).then(() => true).catch(() => false);
+    if (!exists) await fs.writeFile(file, content);
+  }
+  for (const [name, content] of Object.entries(workflows)) {
+    const file = path.join(workflowsDir, `${name}.yaml`);
+    const exists = await fs.access(file).then(() => true).catch(() => false);
+    if (!exists) await fs.writeFile(file, content);
+  }
+}
+
+// Persona file (in compiled mode, write to state dir; in dev mode, use project root)
+let PERSONA_FILE: string;
+if (isCompiledBinary()) {
+  PERSONA_FILE = path.join(MAJORDOMO_STATE, "persona.md");
+  const exists = await fs.access(PERSONA_FILE).then(() => true).catch(() => false);
+  if (!exists) {
+    await fs.writeFile(PERSONA_FILE, personaContent);
+  }
+} else {
+  PERSONA_FILE = path.join(PROJECT_ROOT, "packages", "agent", "persona", "majordomo.md");
+}
+
 const agentsDir = await resolveConfigDir(AGENTS_DIR_USER, AGENTS_DIR_DEFAULT);
 const workflowsDir = await resolveConfigDir(WORKFLOWS_DIR_USER, WORKFLOWS_DIR_DEFAULT);
+
+// Write embedded defaults to config if running as compiled binary
+if (isCompiledBinary()) {
+  await writeEmbeddedDefaults(CONFIG_ROOT, defaultAgents, defaultWorkflows);
+}
 const envFile = path.join(MAJORDOMO_STATE, ".env");
 const resolvedPaths = {
   PROJECT_ROOT,

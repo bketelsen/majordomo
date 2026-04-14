@@ -82,6 +82,8 @@ This scaffolds `~/.majordomo/memory/homelab/` with COG structure.
 
 ## Memory system (COG)
 
+See **[USINGCOG.md](USINGCOG.md)** for the full reference. Canonical spec: https://lab.puga.com.br/cog/
+
 All LLM context is built from `~/.majordomo/memory/` using the COG retrieval protocol:
 
 ```

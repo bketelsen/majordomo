@@ -36,19 +36,23 @@ fi
 MAJORDOMO_STATE="${MAJORDOMO_STATE:-$HOME/.majordomo}"
 MAJORDOMO_HOME="${MAJORDOMO_HOME:-$HOME/.local/share/majordomo}"
 PORT="${PORT:-3000}"
-STARTUP_TIMEOUT_SEC="${STARTUP_TIMEOUT_SEC:-30}"
-HEALTHCHECK_LOCAL_URL="http://127.0.0.1:${PORT}/healthz"
+STARTUP_TIMEOUT_SEC="${STARTUP_TIMEOUT_SEC:-90}"
+HEALTHCHECK_LOCAL_URL="http://127.0.0.1:${PORT}/health"
 
 # Deploy-mode detection
-if [[ -f "$MAJORDOMO_HOME/current/packages/agent/service.ts" ]]; then
+if [[ -x "$MAJORDOMO_HOME/current/majordomo" ]]; then
+  PROJECT_ROOT="$MAJORDOMO_HOME/current"
+  MODE="compiled"
+  SERVICE_ENTRY="$MAJORDOMO_HOME/current/majordomo"
+elif [[ -f "$MAJORDOMO_HOME/current/packages/agent/service.ts" ]]; then
   PROJECT_ROOT="$MAJORDOMO_HOME/current"
   MODE="deploy"
+  SERVICE_ENTRY="$PROJECT_ROOT/packages/agent/service.ts"
 else
   PROJECT_ROOT="$REPO_ROOT"
   MODE="dev"
+  SERVICE_ENTRY="$PROJECT_ROOT/packages/agent/service.ts"
 fi
-
-SERVICE_ENTRY="$PROJECT_ROOT/packages/agent/service.ts"
 LOG_DIR="$MAJORDOMO_STATE/logs"
 PID_FILE="$LOG_DIR/majordomo.pid"
 LOG_FILE="$LOG_DIR/majordomo.log"
@@ -100,7 +104,8 @@ health_check() {
 }
 
 cmd_start() {
-  [[ -f "$SERVICE_ENTRY" ]] || die "service.ts not found at $SERVICE_ENTRY — run 'majordomo deploy' first"
+  [[ -f "$SERVICE_ENTRY" ]] || [[ -x "$SERVICE_ENTRY" ]] || \
+    die "Service entry not found at $SERVICE_ENTRY — run 'majordomo deploy' first"
   
   local existing_pid; existing_pid=$(read_pid)
   [[ -n "$existing_pid" ]] && pid_running "$existing_pid" && die "Already running (PID $existing_pid). Use 'restart'."
@@ -109,8 +114,19 @@ cmd_start() {
   log "Starting Majordomo in ${MODE} mode (project: $PROJECT_ROOT, port: $PORT)..."
 
   cd "$PROJECT_ROOT"
-  MAJORDOMO_STATE="$MAJORDOMO_STATE" PORT="$PORT" \
-    nohup bun "$SERVICE_ENTRY" >> "$LOG_FILE" 2>&1 &
+  
+  if [[ "$MODE" == "compiled" ]]; then
+    # Run compiled binary directly
+    MAJORDOMO_STATE="$MAJORDOMO_STATE" \
+    MAJORDOMO_COMPILED=1 \
+    PORT="$PORT" \
+      nohup "$SERVICE_ENTRY" >> "$LOG_FILE" 2>&1 &
+  else
+    # Run with Bun (dev or source deployment)
+    MAJORDOMO_STATE="$MAJORDOMO_STATE" PORT="$PORT" \
+      nohup bun "$SERVICE_ENTRY" >> "$LOG_FILE" 2>&1 &
+  fi
+  
   local pid=$!
   echo "$pid" > "$PID_FILE"
 

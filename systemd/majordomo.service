@@ -5,6 +5,7 @@ After=network.target
 
 [Service]
 Type=forking
+WorkingDirectory=%h/.local/share/majordomo/current
 Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.cargo/bin:%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=MAJORDOMO_STATE=%h/.majordomo
 Environment=MAJORDOMO_HOME=%h/.local/share/majordomo

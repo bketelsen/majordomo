@@ -31,6 +31,7 @@ import { listAllContainers, dockerAction, incusAction } from "./lib/containers.t
 import { markPriorityDone } from "./lib/priorities.ts";
 import { fetchRecentEmails, markEmailRead } from "./lib/email.ts";
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
+import { indexHTML, isCompiledBinary } from "./assets.ts";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -711,10 +712,16 @@ app.get("/sse", (c) => {
 // ── Static SvelteKit frontend ─────────────────────────────────────────────────
 
 // Serve static files from packages/web/static/ (built SvelteKit app)
-app.use("/*", serveStatic({ root: STATIC_ROOT }));
+// Only apply when NOT compiled binary (static files aren't on disk when compiled)
+if (!isCompiledBinary()) {
+  app.use("/*", serveStatic({ root: STATIC_ROOT }));
+}
 
 // SPA fallback — serve index.html for all unmatched routes
 app.get("*", async (c) => {
+  if (isCompiledBinary()) {
+    return c.html(indexHTML);
+  }
   try {
     const html = await fs.readFile(path.join(STATIC_ROOT, "index.html"), "utf-8");
     return c.html(html);

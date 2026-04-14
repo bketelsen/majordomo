@@ -34,8 +34,10 @@ cd "$REPO_ROOT"
 
 # ── Install dependencies ──────────────────────────────────────────────────────
 
-log "Installing dependencies..."
-bun install --frozen-lockfile || die "bun install failed"
+if [[ "${MAJORDOMO_COMPILE:-0}" != "1" ]]; then
+  log "Installing dependencies..."
+  bun install --frozen-lockfile || die "bun install failed"
+fi
 
 # ── Version tag ───────────────────────────────────────────────────────────────
 
@@ -54,7 +56,43 @@ fi
 
 mkdir -p "$MAJORDOMO_HOME/current"
 
-# ── Copy artifacts ────────────────────────────────────────────────────────────
+# ── Deploy mode selection ──────────────────────────────────────────────────────
+
+if [[ "${MAJORDOMO_COMPILE:-0}" == "1" ]]; then
+  # ── Compiled binary mode ──────────────────────────────────────────────────────
+  
+  log "Building compiled binary..."
+  bash "$SCRIPT_DIR/build-executables.sh" || die "Build failed"
+  
+  # Detect platform
+  OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+  ARCH=$(uname -m)
+  
+  case "$OS-$ARCH" in
+    linux-x86_64)   PLATFORM="linux-x64" ;;
+    darwin-arm64)   PLATFORM="darwin-arm64" ;;
+    darwin-x86_64)  PLATFORM="darwin-x64" ;;
+    *)              die "Unsupported platform: $OS-$ARCH" ;;
+  esac
+  
+  BINARY_SRC="$REPO_ROOT/dist/majordomo-$PLATFORM"
+  [[ -x "$BINARY_SRC" ]] || die "Binary not found: $BINARY_SRC"
+  
+  log "Installing executable for $PLATFORM..."
+  cp "$BINARY_SRC" "$MAJORDOMO_HOME/current/majordomo"
+  chmod +x "$MAJORDOMO_HOME/current/majordomo"
+
+  # pi SDK reads package.json from cwd at startup — provide a minimal stub
+  cat > "$MAJORDOMO_HOME/current/package.json" << 'PKGJSON'
+{
+  "name": "majordomo",
+  "version": "1.0.0",
+  "type": "module"
+}
+PKGJSON
+  
+else
+  # ── Source deployment mode (legacy) ────────────────────────────────────────────
 
 log "Copying artifacts to $MAJORDOMO_HOME/current..."
 
@@ -72,13 +110,25 @@ cp "$REPO_ROOT/package.json" "$MAJORDOMO_HOME/current/package.json"
 cp -r "$REPO_ROOT/agents" "$MAJORDOMO_HOME/current/agents"
 cp -r "$REPO_ROOT/workflows" "$MAJORDOMO_HOME/current/workflows"
 
+# Documentation (for reference)
+if [[ -d "$REPO_ROOT/docs" ]]; then
+  cp -r "$REPO_ROOT/docs" "$MAJORDOMO_HOME/current/docs"
+fi
+
 # Optional: .env.example for reference
 [[ -f "$REPO_ROOT/.env.example" ]] && cp "$REPO_ROOT/.env.example" "$MAJORDOMO_HOME/current/.env.example"
+
+fi
 
 # Version marker
 echo "$VERSION" > "$MAJORDOMO_HOME/current/VERSION"
 
 log "✓ Deployed v$VERSION to $MAJORDOMO_HOME/current"
+if [[ "${MAJORDOMO_COMPILE:-0}" == "1" ]]; then
+  log "   Mode: compiled binary"
+else
+  log "   Mode: source deployment"
+fi
 
 echo ""
 echo "Next steps:"

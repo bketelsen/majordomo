@@ -57,6 +57,7 @@ interface RunRecord {
   input: Record<string, unknown>;
   output?: string;
   error?: string;
+  stderr?: string;
   startedAt: number;
   finishedAt?: number;
   retries: number;
@@ -127,11 +128,23 @@ function openRunsDb(dataRoot: string): Database {
       input       TEXT NOT NULL,
       output      TEXT,
       error       TEXT,
+      stderr      TEXT,
       started_at  INTEGER NOT NULL,
       finished_at INTEGER,
       retries     INTEGER NOT NULL DEFAULT 0
     );
+    -- Additive migration: add stderr column if it doesn't exist
+    ALTER TABLE runs ADD COLUMN stderr TEXT;
   `);
+
+  // Mark any runs still 'running' from a previous process as orphaned
+  const orphaned = db.prepare(
+    "UPDATE runs SET status = 'failed', error = 'Orphaned: service restarted before completion', finished_at = ? WHERE status = 'running'"
+  ).run(Date.now());
+  if ((orphaned.changes as number) > 0) {
+    console.log(`[subagent] Marked ${orphaned.changes} orphaned run(s) as failed`);
+  }
+
   return db;
 }
 
@@ -144,7 +157,7 @@ function createRun(db: Database, agent: string, input: Record<string, unknown>):
   return { id, agent, status: "running", input, startedAt: Date.now(), retries: 0 };
 }
 
-function updateRun(db: Database, id: string, fields: Partial<Pick<RunRecord, 'status' | 'output' | 'error' | 'retries' | 'finishedAt'>>): void {
+function updateRun(db: Database, id: string, fields: Partial<Pick<RunRecord, 'status' | 'output' | 'error' | 'stderr' | 'retries' | 'finishedAt'>>): void {
   if (fields.status !== undefined) {
     db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(fields.status, id);
   }
@@ -153,6 +166,9 @@ function updateRun(db: Database, id: string, fields: Partial<Pick<RunRecord, 'st
   }
   if (fields.error !== undefined) {
     db.prepare("UPDATE runs SET error = ? WHERE id = ?").run(fields.error, id);
+  }
+  if (fields.stderr !== undefined) {
+    db.prepare("UPDATE runs SET stderr = ? WHERE id = ?").run(fields.stderr, id);
   }
   if (fields.retries !== undefined) {
     db.prepare("UPDATE runs SET retries = ? WHERE id = ?").run(fields.retries, id);
@@ -172,6 +188,7 @@ function getRun(db: Database, id: string): RunRecord | null {
     input: JSON.parse(row.input as string),
     output: row.output as string | undefined,
     error: row.error as string | undefined,
+    stderr: row.stderr as string | undefined,
     startedAt: row.started_at as number,
     finishedAt: row.finished_at as number | undefined,
     retries: row.retries as number,
@@ -187,6 +204,7 @@ function getRecentRuns(db: Database, limit = 10): RunRecord[] {
     input: JSON.parse(row.input as string),
     output: row.output as string | undefined,
     error: row.error as string | undefined,
+    stderr: row.stderr as string | undefined,
     startedAt: row.started_at as number,
     finishedAt: row.finished_at as number | undefined,
     retries: row.retries as number,
@@ -385,14 +403,16 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
         (async () => {
           let attempt = 0;
           const maxRetries = agentDef.on_failure?.retry ?? 0;
+          let lastStderr = "";
 
           while (attempt <= maxRetries) {
             try {
               const result = await spawnAgent(agentDef, params.input as Record<string, unknown>, domainWorkingDir, signal);
+              lastStderr = result.stderr || "";
 
               if (result.exitCode === 0) {
                 const finishedAt = Date.now();
-                updateRun(db, run.id, { status: "done", output: result.output, finishedAt });
+                updateRun(db, run.id, { status: "done", output: result.output, stderr: result.stderr || undefined, finishedAt });
                 if (notify) {
                   const elapsed = ((finishedAt - run.startedAt) / 1000).toFixed(0);
                   pi.sendUserMessage(
@@ -413,7 +433,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
               if (attempt > maxRetries) {
                 const finishedAt = Date.now();
                 const error = String(err);
-                updateRun(db, run.id, { status: "failed", error, finishedAt });
+                updateRun(db, run.id, { status: "failed", error, stderr: lastStderr || undefined, finishedAt });
                 const action = agentDef.on_failure?.then ?? "report_to_majordomo";
                 if (action === "report_to_majordomo") {
                   pi.sendUserMessage(
@@ -502,6 +522,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
             `**Elapsed:** ${elapsed}`,
             run.retries > 0 ? `**Retries:** ${run.retries}` : "",
             run.error ? `**Error:** ${run.error}` : "",
+            run.stderr ? `**Stderr:** ${run.stderr.slice(0, 300)}` : "",
             run.output ? `**Output preview:** ${run.output.slice(0, 200)}…` : "",
           ].filter(Boolean).join("\n");
 

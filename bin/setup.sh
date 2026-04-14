@@ -36,7 +36,7 @@ echo ""
 log "Creating state directories at $MAJORDOMO_STATE..."
 mkdir -p "$MAJORDOMO_STATE"/{memory,data,config,logs}
 mkdir -p "$MAJORDOMO_STATE/data"/{sessions,scratch,widgets}
-mkdir -p "$MAJORDOMO_STATE/config"/{agents,workflows}
+mkdir -p "$MAJORDOMO_STATE/config"/{agents,workflows,persona}
 
 # ── Migrate existing data if present ─────────────────────────────────────────
 
