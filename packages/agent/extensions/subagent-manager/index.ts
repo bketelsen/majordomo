@@ -33,7 +33,7 @@ export interface SubagentManagerOptions {
   domain?: string;       // Deprecated: active domain for this session (use getDomain instead)
   memoryRoot: string;    // path to memory/ for domain workingDir lookup
   maxConcurrency?: number;
-  getDomain?: () => string;  // Dynamic domain accessor (Phase 1)
+  getDomain?: () => string;  // Dynamic domain accessor
 }
 
 interface AgentDefinition {

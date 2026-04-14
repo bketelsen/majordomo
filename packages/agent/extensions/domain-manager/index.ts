@@ -21,7 +21,7 @@ export interface DomainManagerOptions {
   memoryRoot: string;
   dataRoot: string;
   projectRoot: string;
-  getDomain?: () => string;  // Dynamic domain accessor (Phase 1)
+  getDomain?: () => string;  // Dynamic domain accessor
 }
 
 interface CogDomain {
@@ -455,7 +455,7 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
       },
     });
 
-    // ── suggest_domain_switch tool (Phase 3) ─────────────────────────────────
+    // ── suggest_domain_switch tool ───────────────────────────────────────────
 
     pi.registerTool({
       name: "suggest_domain_switch",
@@ -513,7 +513,7 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
       },
     });
 
-    // ── confirm_domain_switch tool (Phase 3) ─────────────────────────────────
+    // ── confirm_domain_switch tool ───────────────────────────────────────────
 
     pi.registerTool({
       name: "confirm_domain_switch",

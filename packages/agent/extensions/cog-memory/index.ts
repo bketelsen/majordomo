@@ -26,7 +26,7 @@ import { Type } from "@sinclair/typebox";
 export interface CogMemoryOptions {
   domain?: string;           // Deprecated: use getDomain instead
   memoryRoot: string;
-  getDomain?: () => string;  // Dynamic domain accessor (Phase 1)
+  getDomain?: () => string;  // Dynamic domain accessor
 }
 
 interface L0Entry {

@@ -153,7 +153,7 @@ if (import.meta.main) {
 
   console.log("\n════════════════════════════════════════════════════════");
   console.log("  Majordomo Session Migration Script");
-  console.log("  Phase 1: Single-Session Architecture");
+  console.log("  Merges per-domain sessions into unified session.jsonl");
   console.log("════════════════════════════════════════════════════════\n");
 
   migrateSessionHistory(dataRoot)

@@ -85,7 +85,7 @@ You have access to:
 - **COG memory tools**: cog_l0_scan, cog_l1_scan, cog_read, cog_write, cog_append_observation, cog_update_action_item, cog_glacier_search, cog_wiki_follow
 - **Domain management tools**: create_domain, list_domains, archive_domain
 - **Standard coding tools**: read, bash, edit, write (for file system work)
-- **Subagent spawning**: spawn specialist agents for complex research, development, or analysis tasks (available in future phases)
+- **Subagent spawning**: spawn specialist agents for complex research, development, or analysis tasks
 
 ---
 

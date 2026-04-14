@@ -30,7 +30,7 @@ export interface SchedulerOptions {
   dataRoot: string;
   agentsDir: string;
   domain?: string;  // Deprecated: only the 'general' session starts cron ticks
-  getDomain?: () => string;  // Dynamic domain accessor (Phase 1)
+  getDomain?: () => string;  // Dynamic domain accessor
 }
 
 interface ScheduledJob {
@@ -294,9 +294,7 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
       handler: async (_args, ctx) => runCogSkill("evolve", ctx),
     });
 
-    // ── /switch command (Phase 1) ────────────────────────────────────────────
-    // Registers command stub — becomes functional in Phase 2 when
-    // DomainContextManager is wired into service.ts
+    // ── /switch command ──────────────────────────────────────────────────────
 
     pi.registerCommand("switch", {
       description: "Switch to a different domain context",
@@ -307,11 +305,8 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
           return;
         }
 
-        // Phase 1: Log the intent (manager not wired yet)
-        // Phase 2: Call manager.switchDomain(domainId)
         const manager = (globalThis as any).__majordomoManager;
         if (manager) {
-          // Phase 2 path (manager exists)
           try {
             await manager.switchDomain(domainId);
             ctx.ui.notify(`Switched to domain: ${domainId}`, "info");
@@ -323,10 +318,9 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
             ctx.ui.notify(`Failed to switch domain: ${err}`, "error");
           }
         } else {
-          // Phase 1 path (manager not wired yet)
           console.log(`[switch] Intent logged: switch to domain '${domainId}' (manager not wired yet)`);
           ctx.ui.notify(
-            `[Phase 1] Domain switch intent logged: ${domainId} (DomainContextManager not wired yet)`,
+            `Domain switch intent logged: ${domainId} (DomainContextManager not wired yet)`,
             "info"
           );
         }
