@@ -90,6 +90,11 @@ if [[ "${MAJORDOMO_COMPILE:-0}" == "1" ]]; then
   "type": "module"
 }
 PKGJSON
+
+  # Copy plugins to external state dir — compiled binary can't load from /$bunfs/
+  log "Copying plugins to $MAJORDOMO_STATE/plugins..."
+  mkdir -p "$MAJORDOMO_STATE/plugins"
+  cp -r "$REPO_ROOT/packages/web/plugins/"* "$MAJORDOMO_STATE/plugins/"
   
 else
   # ── Source deployment mode (legacy) ────────────────────────────────────────────

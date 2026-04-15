@@ -41,7 +41,14 @@ const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordo
 const MEMORY_ROOT = path.join(MAJORDOMO_STATE, "memory");
 const DATA_ROOT = path.join(MAJORDOMO_STATE, "data");
 const STATIC_ROOT = path.join(import.meta.dirname, "..", "static");
-const PLUGIN_DIR = path.join(import.meta.dirname, "..", "plugins");
+// In compiled binary, import.meta.dirname is inside /$bunfs/ — plugins must live externally
+// Check MAJORDOMO_STATE/plugins first (external, works in compiled mode), fallback to source path
+const PLUGIN_DIR_EXTERNAL = path.join(MAJORDOMO_STATE, "plugins");
+const PLUGIN_DIR_SOURCE = path.join(import.meta.dirname, "..", "plugins");
+const PLUGIN_DIR = await (async () => {
+  const externalExists = await fs.access(PLUGIN_DIR_EXTERNAL).then(() => true).catch(() => false);
+  return externalExists ? PLUGIN_DIR_EXTERNAL : PLUGIN_DIR_SOURCE;
+})();
 
 // ── In-process event bus (agent pushes events here, WS clients consume) ───────
 
