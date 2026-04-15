@@ -225,6 +225,15 @@ function openRunsDb(dataRoot: string): Database {  const db = new Database(path.
     console.log(`[subagent] Marked ${orphanedSteps.changes} orphaned workflow step(s) as failed`);
   }
 
+  // Clean up old completed workflow steps (>30 days)
+  const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+  const cleanedSteps = db.prepare(
+    "DELETE FROM workflow_steps WHERE created_at < ? AND status IN ('done', 'failed', 'skipped')"
+  ).run(thirtyDaysAgo);
+  if ((cleanedSteps.changes as number) > 0) {
+    console.log(`[subagent] Cleaned up ${cleanedSteps.changes} old workflow step(s) older than 30 days`);
+  }
+
   return db;
 }
 
