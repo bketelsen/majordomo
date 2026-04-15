@@ -5,7 +5,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import { readDomainsManifest } from "@/shared/lib/domains";
+import { readDomainsManifest } from "../../../shared/lib/domains";
 
 const HOME = process.env.HOME ?? "/root";
 const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");

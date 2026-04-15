@@ -9,7 +9,6 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import { watch, type FSWatcher } from "node:fs";
 import {
   createAgentSession,
   createEventBus,
@@ -25,7 +24,7 @@ import { cogMemoryExtensionFactory } from "../extensions/cog-memory/index.ts";
 import { domainManagerExtensionFactory } from "../extensions/domain-manager/index.ts";
 import { subagentManagerExtensionFactory } from "../extensions/subagent-manager/index.ts";
 import { schedulerExtensionFactory } from "../extensions/scheduler/index.ts";
-import { readDomainsManifest, type DomainsManifest } from "../../shared/lib/domains.ts";
+import { readDomainsManifest, invalidateDomainsCache, type DomainsManifest } from "../../shared/lib/domains.ts";
 import { createLogger } from "./logger.ts";
 
 const logger = createLogger({ context: { component: "domain-context-manager" } });
@@ -57,8 +56,6 @@ export class DomainContextManager {
   private resolve?: (text: string) => void;
   private reject?: (err: Error) => void;
   private onToken?: (delta: string) => void;
-  private domainsCache?: { manifest: DomainsManifest; timestamp: number };
-  private domainsFileWatcher?: FSWatcher;
 
   constructor(private opts: DomainContextManagerOptions) {}
 
@@ -74,17 +71,14 @@ export class DomainContextManager {
     logger.info("Initializing single-session architecture");
 
     // Validate domains manifest exists
-    const manifest = await this.readDomainsManifest();
+    const manifest = await readDomainsManifest(this.opts.memoryRoot);
     if (manifest.domains.length === 0) {
       throw new Error("No domains configured in memory/domains.yml");
     }
 
-    // Set up file watcher for domains.yml
-    this.setupDomainsFileWatcher();
-
     // Listen for domain creation/archive events to invalidate cache
-    sharedEventBus.on("domain:created", () => this.invalidateDomainsCache());
-    sharedEventBus.on("domain:archived", () => this.invalidateDomainsCache());
+    sharedEventBus.on("domain:created", () => invalidateDomainsCache(this.opts.memoryRoot));
+    sharedEventBus.on("domain:archived", () => invalidateDomainsCache(this.opts.memoryRoot));
 
     // Load persona template once; active domain is substituted per prompt
     const personaTemplate = await this.loadPersonaTemplate();
@@ -158,7 +152,7 @@ export class DomainContextManager {
 
   async switchDomain(domainId: string): Promise<void> {
     // Validate domain exists and is not archived
-    const manifest = await this.readDomainsManifest();
+    const manifest = await readDomainsManifest(this.opts.memoryRoot);
     const domain = manifest.domains.find(
       (d) => d.id === domainId && d.status !== "archived"
     );
@@ -200,7 +194,7 @@ export class DomainContextManager {
   // ── List all active domains ───────────────────────────────────────────────
 
   async domains(): Promise<string[]> {
-    const manifest = await this.readDomainsManifest();
+    const manifest = await readDomainsManifest(this.opts.memoryRoot);
     return manifest.domains
       .filter((d) => d.status !== "archived")
       .map((d) => d.id);
@@ -216,7 +210,6 @@ export class DomainContextManager {
 
   dispose(): void {
     this.session.dispose();
-    this.domainsFileWatcher?.close();
   }
 
   // ── Private: wire session events to resolve promises ──────────────────────
@@ -295,51 +288,5 @@ export class DomainContextManager {
 
   private renderPersona(template: string): string {
     return template.replace(/\{\{ACTIVE_DOMAIN\}\}/g, this.activeDomain);
-  }
-
-  // ── Private: read domains manifest ────────────────────────────────────────
-
-  private async readDomainsManifest() {
-    // Check cache first
-    if (this.domainsCache) {
-      return this.domainsCache.manifest;
-    }
-
-    // Read from disk and cache
-    const manifest = await readDomainsManifest(this.opts.memoryRoot);
-    this.domainsCache = {
-      manifest,
-      timestamp: Date.now(),
-    };
-    return manifest;
-  }
-
-  // ── Private: setup file watcher for domains.yml ───────────────────────────
-
-  private setupDomainsFileWatcher(): void {
-    const domainsFile = path.join(this.opts.memoryRoot, "domains.yml");
-    
-    try {
-      this.domainsFileWatcher = watch(domainsFile, (eventType) => {
-        if (eventType === "change" || eventType === "rename") {
-          logger.info("domains.yml changed, invalidating cache");
-          this.invalidateDomainsCache();
-        }
-      });
-      
-      this.domainsFileWatcher.on("error", (err) => {
-        logger.warn("Error watching domains.yml", { error: err });
-      });
-      
-      logger.info("Watching domains.yml for changes");
-    } catch (err) {
-      logger.warn("Failed to set up domains.yml watcher", { error: err });
-    }
-  }
-
-  // ── Private: invalidate domains cache ─────────────────────────────────────
-
-  private invalidateDomainsCache(): void {
-    this.domainsCache = undefined;
   }
 }
