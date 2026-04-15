@@ -72,6 +72,31 @@ interface RunRecord {
   retries: number;
 }
 
+interface WorkflowStep {
+  id: string;
+  agent: string;
+  depends_on?: string;
+  iterate_over?: string;
+  input: Record<string, string>;
+}
+
+interface WorkflowStepRecord {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  stepId: string;
+  agent: string;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  input?: string;
+  output?: string;
+  error?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  iterationIndex?: number;
+  iterationTotal?: number;
+  createdAt: number;
+}
+
 // ── Agent registry ────────────────────────────────────────────────────────────
 
 async function loadAgents(agentsDir: string): Promise<AgentDefinition[]> {
@@ -127,8 +152,11 @@ function parseAgentFile(content: string): AgentDefinition | null {
 
 // ── Run tracking (SQLite-backed) ─────────────────────────────────────────────
 
-function openRunsDb(dataRoot: string): Database {
-  const db = new Database(path.join(dataRoot, "subagents.db"));
+function openRunsDb(dataRoot: string): Database {  const db = new Database(path.join(dataRoot, "subagents.db"));
+  
+  // Enable foreign key constraints
+  db.exec("PRAGMA foreign_keys = ON");
+  
   db.exec(`
     CREATE TABLE IF NOT EXISTS runs (
       id          TEXT PRIMARY KEY,
@@ -148,12 +176,47 @@ function openRunsDb(dataRoot: string): Database {
   // Add stderr column idempotently (ALTER TABLE throws if column exists in SQLite)
   try { db.exec(`ALTER TABLE runs ADD COLUMN stderr TEXT`); } catch { /* already exists */ }
 
+  // Create workflow_steps table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_steps (
+      id              TEXT PRIMARY KEY,
+      workflow_id     TEXT NOT NULL,
+      workflow_name   TEXT NOT NULL,
+      step_id         TEXT NOT NULL,
+      agent           TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'pending',
+      input           TEXT,
+      output          TEXT,
+      error           TEXT,
+      started_at      INTEGER,
+      finished_at     INTEGER,
+      iteration_index INTEGER,
+      iteration_total INTEGER,
+      created_at      INTEGER NOT NULL
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow 
+      ON workflow_steps(workflow_id);
+    CREATE INDEX IF NOT EXISTS idx_workflow_steps_status 
+      ON workflow_steps(status);
+    CREATE INDEX IF NOT EXISTS idx_workflow_steps_created 
+      ON workflow_steps(created_at DESC);
+  `);
+
   // Mark any runs still 'running' from a previous process as orphaned
   const orphaned = db.prepare(
     "UPDATE runs SET status = 'failed', error = 'Orphaned: service restarted before completion', finished_at = ? WHERE status = 'running'"
   ).run(Date.now());
   if ((orphaned.changes as number) > 0) {
     console.log(`[subagent] Marked ${orphaned.changes} orphaned run(s) as failed`);
+  }
+  
+  // Mark orphaned workflow steps as failed
+  const orphanedSteps = db.prepare(
+    "UPDATE workflow_steps SET status = 'failed', error = 'Orphaned: service restarted', finished_at = ? WHERE status IN ('pending', 'running')"
+  ).run(Date.now());
+  if ((orphanedSteps.changes as number) > 0) {
+    console.log(`[subagent] Marked ${orphanedSteps.changes} orphaned workflow step(s) as failed`);
   }
 
   return db;
@@ -220,6 +283,67 @@ function getRecentRuns(db: Database, limit = 10): RunRecord[] {
     finishedAt: row.finished_at as number | undefined,
     retries: row.retries as number,
   }));
+}
+
+// ── Workflow step tracking ────────────────────────────────────────────────────
+
+function createWorkflowStep(
+  db: Database,
+  workflowId: string,
+  workflowName: string,
+  step: WorkflowStep,
+  iterationIndex?: number,
+  iterationTotal?: number
+): WorkflowStepRecord {
+  const id = `wf-${workflowName}-${step.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const createdAt = Date.now();
+  
+  db.prepare(`
+    INSERT INTO workflow_steps (
+      id, workflow_id, workflow_name, step_id, agent, status, 
+      iteration_index, iteration_total, created_at
+    ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+  `).run(
+    id, workflowId, workflowName, step.id, step.agent,
+    iterationIndex ?? null, iterationTotal ?? null, createdAt
+  );
+  
+  return {
+    id,
+    workflowId,
+    workflowName,
+    stepId: step.id,
+    agent: step.agent,
+    status: 'pending',
+    iterationIndex,
+    iterationTotal,
+    createdAt
+  };
+}
+
+function updateWorkflowStep(
+  db: Database,
+  id: string,
+  fields: Partial<Pick<WorkflowStepRecord, 'status' | 'input' | 'output' | 'error' | 'startedAt' | 'finishedAt'>>
+): void {
+  if (fields.status !== undefined) {
+    db.prepare("UPDATE workflow_steps SET status = ? WHERE id = ?").run(fields.status, id);
+  }
+  if (fields.input !== undefined) {
+    db.prepare("UPDATE workflow_steps SET input = ? WHERE id = ?").run(fields.input, id);
+  }
+  if (fields.output !== undefined) {
+    db.prepare("UPDATE workflow_steps SET output = ? WHERE id = ?").run(fields.output, id);
+  }
+  if (fields.error !== undefined) {
+    db.prepare("UPDATE workflow_steps SET error = ? WHERE id = ?").run(fields.error, id);
+  }
+  if (fields.startedAt !== undefined) {
+    db.prepare("UPDATE workflow_steps SET started_at = ? WHERE id = ?").run(fields.startedAt, id);
+  }
+  if (fields.finishedAt !== undefined) {
+    db.prepare("UPDATE workflow_steps SET finished_at = ? WHERE id = ?").run(fields.finishedAt, id);
+  }
 }
 
 // ── Spawn a pi subagent process ────────────────────────────────────────────────
@@ -671,6 +795,14 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
         }
 
         const workflowId = `wf-${params.workflow}-${Date.now()}`;
+
+        // Emit workflow start event
+        pi.events.emit("workflow:started", { 
+          workflowId, 
+          workflowName: params.workflow,
+          totalSteps: workflowDef.steps.length,
+          timestamp: Date.now()
+        });
 
         // Execute workflow asynchronously
         (async () => {

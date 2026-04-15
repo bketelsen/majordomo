@@ -372,6 +372,20 @@
       </div>
     </div>
 
+    <div class="widget" id="widget-workflows">
+      <div class="widget-header" onclick="toggleWidget('widget-workflows')">
+        <span>🔄 Workflow Status</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <span id="workflows-updated" style="font-size:10px;font-weight:400"></span>
+          <span class="refresh-btn" onclick="refreshWidget(event, 'workflows')" title="Refresh workflows">↻</span>
+          <span class="widget-toggle">▾</span>
+        </span>
+      </div>
+      <div class="widget-body" id="widget-workflows-body">
+        <div class="empty">No workflows yet</div>
+      </div>
+    </div>
+
     <div class="widget" id="widget-schedules">
       <div class="widget-header" onclick="toggleWidget('widget-schedules')">
         <span>⏰ Schedules</span>
@@ -457,10 +471,12 @@ async function init() {
   loadWidget('priorities');
   loadWidget('containers');
   loadWidget('subagents');
+  loadWidget('workflows');
   loadWidget('schedules');
   setInterval(() => loadWidget('priorities'), 60000);
   setInterval(() => loadWidget('containers'), 30000);
   setInterval(() => loadWidget('subagents'),  10000);
+  setInterval(() => loadWidget('workflows'),  10000);
   setInterval(() => loadWidget('schedules'),  30000);
   setupInput();
 }
@@ -936,6 +952,7 @@ function connectSSE() {
 
   const dot = document.getElementById('status-dot');
   evtSource = new EventSource(`/sse`);
+  window.eventSource = evtSource;  // Expose for plugins
 
   evtSource.onopen = () => {
     dot.className = '';  // green
@@ -1017,6 +1034,15 @@ function connectSSE() {
       case 'domain:switch_suggested':
         showDomainSwitchBanner(data.from, data.to, data.reason);
         break;
+
+      case 'workflow:started':
+      case 'workflow:step_start':
+      case 'workflow:step_complete':
+      case 'workflow:step_failed':
+      case 'workflow:complete':
+        // Trigger workflow widget refresh on any workflow event
+        loadWidget('workflows');
+        break;
     }
   };
 }
@@ -1041,6 +1067,10 @@ async function loadWidget(name) {
     if (name === 'email')      renderEmailWidget(data.data);
   }
 }
+
+// Expose loadWidget to window for plugin use
+window.refreshWidget = (name) => loadWidget(name);
+window.eventSource = null;  // Will be set in connectSSE
 
 function renderPluginWidget(name, plugin, data) {
   const bodyId = `widget-${name}-body`;

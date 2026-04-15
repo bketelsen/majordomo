@@ -95,6 +95,13 @@ webEvents.on("domain:created", (data: unknown) => broadcast("domain:created", da
 webEvents.on("domain:deleted", (data: unknown) => broadcast("domain:deleted", data));
 webEvents.on("domain:switched", (data: unknown) => broadcast("domain:switched", data));
 
+// Forward workflow events to SSE clients
+webEvents.on("workflow:started", (data: unknown) => broadcast("workflow:started", data));
+webEvents.on("workflow:step_start", (data: unknown) => broadcast("workflow:step_start", data));
+webEvents.on("workflow:step_complete", (data: unknown) => broadcast("workflow:step_complete", data));
+webEvents.on("workflow:step_failed", (data: unknown) => broadcast("workflow:step_failed", data));
+webEvents.on("workflow:complete", (data: unknown) => broadcast("workflow:complete", data));
+
 // ── JSONL session reader ───────────────────────────────────────────────────────
 
 interface ChatMessage {

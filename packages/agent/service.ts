@@ -155,6 +155,13 @@ sharedEventBus.on("agent:thinking", (data: unknown) => webEvents.emit("agent:thi
 sharedEventBus.on("agent:tool_start", (data: unknown) => webEvents.emit("agent:tool_start", data));
 sharedEventBus.on("agent:tool_end", (data: unknown) => webEvents.emit("agent:tool_end", data));
 
+// Forward workflow events to the web event bus
+sharedEventBus.on("workflow:started", (data: unknown) => webEvents.emit("workflow:started", data));
+sharedEventBus.on("workflow:step_start", (data: unknown) => webEvents.emit("workflow:step_start", data));
+sharedEventBus.on("workflow:step_complete", (data: unknown) => webEvents.emit("workflow:step_complete", data));
+sharedEventBus.on("workflow:step_failed", (data: unknown) => webEvents.emit("workflow:step_failed", data));
+sharedEventBus.on("workflow:complete", (data: unknown) => webEvents.emit("workflow:complete", data));
+
 // ── Web server (in-process) ───────────────────────────────────────────────────
 
 serve({ fetch: webApp.fetch, port: WEB_PORT }, (info) => {
