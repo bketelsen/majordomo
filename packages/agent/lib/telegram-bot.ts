@@ -13,6 +13,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import yaml from "js-yaml";
+import { loadYamlFile } from "../../shared/lib/yaml-helpers";
 import { Bot, type Context } from "grammy";
 import type { DomainContextManager } from "./domain-context-manager.ts";
 
@@ -211,11 +212,6 @@ export class TelegramBot {
 
   private async loadMap(): Promise<void> {
     const filePath = path.join(this.opts.dataRoot, "telegram-map.yaml");
-    try {
-      const content = await fs.readFile(filePath, "utf-8");
-      this.map = (yaml.load(content) as TelegramMap) ?? this.map;
-    } catch (err) {
-      console.debug('[telegram] telegram-map.yaml not found, using defaults:', err);
-    }
+    this.map = await loadYamlFile<TelegramMap>(filePath, this.map);
   }
 }

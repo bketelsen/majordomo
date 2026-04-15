@@ -11,6 +11,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import yaml from "js-yaml";
+import { loadYamlFile } from "../../../shared/lib/yaml-helpers";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type CogDomain, type DomainsManifest, readDomainsManifest } from "../../../shared/lib/domains.ts";
@@ -47,13 +48,7 @@ async function writeDomainsManifest(memoryRoot: string, manifest: DomainsManifes
 
 async function readTelegramMap(dataRoot: string): Promise<TelegramMap> {
   const filePath = path.join(dataRoot, "telegram-map.yaml");
-  try {
-    const content = await fs.readFile(filePath, "utf-8");
-    return (yaml.load(content) as TelegramMap) ?? { telegram: { bot_token_env: "TELEGRAM_BOT_TOKEN" }, topics: {} };
-  } catch (err) {
-    console.debug('[domain-manager] Telegram map not found, using default:', err);
-    return { telegram: { bot_token_env: "TELEGRAM_BOT_TOKEN" }, topics: {} };
-  }
+  return loadYamlFile<TelegramMap>(filePath, { telegram: { bot_token_env: "TELEGRAM_BOT_TOKEN" }, topics: {} });
 }
 
 async function writeTelegramMap(dataRoot: string, map: TelegramMap): Promise<void> {

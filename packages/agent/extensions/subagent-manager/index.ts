@@ -23,6 +23,8 @@ import yaml from "js-yaml";
 import { Database } from "bun:sqlite";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { readDomainsManifest } from "../../../shared/lib/domains";
+import { loadYamlFile } from "../../../shared/lib/yaml-helpers";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -577,9 +579,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
     await fs.mkdir(scratchDir, { recursive: true });
     let domainWorkingDir: string = scratchDir;
     try {
-      const manifestPath = path.join(memoryRoot, "domains.yml");
-      const raw = await fs.readFile(manifestPath, "utf-8");
-      const manifest = yaml.load(raw) as { domains: Array<{ id: string; workingDir?: string }> };
+      const manifest = await readDomainsManifest(memoryRoot);
       const domainEntry = manifest.domains.find(d => d.id === getDomain());
       if (domainEntry?.workingDir) domainWorkingDir = domainEntry.workingDir;
     } catch (err) {

@@ -4,8 +4,7 @@
  */
 
 import * as path from "node:path";
-import * as fs from "node:fs/promises";
-import yaml from "js-yaml";
+import { loadYamlFile } from "./yaml-helpers";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -33,10 +32,5 @@ export interface DomainsManifest {
  */
 export async function readDomainsManifest(memoryRoot: string): Promise<DomainsManifest> {
   const filePath = path.join(memoryRoot, "domains.yml");
-  try {
-    const content = await fs.readFile(filePath, "utf-8");
-    return (yaml.load(content) as DomainsManifest) ?? { domains: [] };
-  } catch {
-    return { domains: [] };
-  }
+  return loadYamlFile<DomainsManifest>(filePath, { domains: [] });
 }
