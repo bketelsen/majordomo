@@ -104,6 +104,7 @@ export class DomainContextManager {
         subagentManagerExtensionFactory({
           projectRoot: this.opts.projectRoot,
           agentsDir: this.opts.agentsDir,
+          workflowsDir: this.opts.workflowsDir,
           dataRoot: this.opts.dataRoot,
           memoryRoot: this.opts.memoryRoot,
           getDomain: () => this.getDomain(),

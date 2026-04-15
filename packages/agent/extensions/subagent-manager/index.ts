@@ -29,6 +29,7 @@ import { Type } from "@sinclair/typebox";
 export interface SubagentManagerOptions {
   projectRoot: string;
   agentsDir: string;     // path to agents/*.md
+  workflowsDir?: string; // path to workflows/*.yaml (falls back to projectRoot/workflows)
   dataRoot: string;
   domain?: string;       // Deprecated: active domain for this session (use getDomain instead)
   memoryRoot: string;    // path to memory/ for domain workingDir lookup
@@ -336,6 +337,7 @@ async function spawnAgent(
 export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
   return async (pi: ExtensionAPI) => {
     const { projectRoot, agentsDir, memoryRoot, dataRoot } = opts;
+    const workflowsDir = opts.workflowsDir ?? path.join(projectRoot, "workflows");
     // Resolve domain: getDomain accessor takes precedence over static domain
     const getDomain = opts.getDomain ?? (() => opts.domain ?? "general");
 
@@ -573,7 +575,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
       }),
 
       async execute(_id, params, signal): Promise<AgentToolResult<Record<string, unknown>>> {
-        const workflowFile = path.join(projectRoot, "workflows", `${params.workflow}.yaml`);
+        const workflowFile = path.join(workflowsDir, `${params.workflow}.yaml`);
 
         let workflowDef: { name: string; steps: Array<{ id: string; agent: string; input: Record<string, string>; depends_on?: string }> };
         try {
