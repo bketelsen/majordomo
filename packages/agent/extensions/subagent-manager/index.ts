@@ -1255,6 +1255,35 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
             `✅ Workflow **${params.workflow}** complete!\n\nFinal output:\n${outputText}`,
             { deliverAs: "followUp" }
           );
+
+          // After workflow completes, sync mentat if structural changes were made
+          // (only for improve-codebase workflow with certain categories)
+          if (params.workflow === "improve-codebase") {
+            const hasStructuralChanges = Object.values(stepOutputs).some(output => {
+              const text = String(output);
+              return text.includes("consolidat") || 
+                     text.includes("restructur") || 
+                     text.includes("remov") ||
+                     text.includes("architect") ||
+                     text.includes("dead-code");
+            });
+
+            if (hasStructuralChanges) {
+              try {
+                const { mentatSync, isMentatAvailable, hasAgenticHarness } = await import("../../lib/mentat.ts");
+                if (await isMentatAvailable() && await hasAgenticHarness(domainWorkingDir)) {
+                  logger.info("Structural changes detected, syncing mentat", { workflowId });
+                  await mentatSync(domainWorkingDir);
+                  pi.sendUserMessage(
+                    "🔄 Structural changes detected — refreshed .agentic/ harness (skills + MAP.md)",
+                    { deliverAs: "followUp" }
+                  );
+                }
+              } catch (err) {
+                logger.warn("Failed to sync mentat after workflow", { workflowId, error: err });
+              }
+            }
+          }
         })();
 
         return {

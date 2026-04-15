@@ -315,11 +315,25 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
         sections.push("### Today's Strategic Nudge\n\n" + nudge);
       }
 
-      if (sections.length === 0) return undefined;
+      // 6. Check for .agentic/ harness in project root
+      let agenticNote = "";
+      try {
+        const projectRoot = process.env.MAJORDOMO_PROJECT_ROOT ?? process.cwd();
+        const agenticReadme = path.join(projectRoot, ".agentic", "README.md");
+        const { existsSync } = await import("node:fs");
+        if (existsSync(agenticReadme)) {
+          agenticNote = "\n\n**Note:** This repo has a `.agentic/` harness. Read `.agentic/README.md` for artifact conventions (PRDs, ADRs, plans, test specs).";
+        }
+      } catch (err) {
+        logger.debug("Failed to check for .agentic/ harness", { error: err });
+      }
+
+      if (sections.length === 0 && !agenticNote) return undefined;
 
       const cogBlock =
         "\n\n---\n\n## Working Memory (Active Domain: " + activeDomain + ")\n\n" +
         sections.join("\n\n---\n\n") +
+        agenticNote +
         "\n\n---";
 
       return { systemPrompt: event.systemPrompt + cogBlock };

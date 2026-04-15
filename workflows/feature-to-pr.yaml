@@ -40,6 +40,8 @@ steps:
         Detailed findings:
         {{steps.investigate.output.raw_findings}}
         {{/if}}
+        
+        If .agentic/ exists in the repo, save PRD to .agentic/prds/PRD-{timestamp}.md
       constraints: "{{workflow.input.context}}"
 
   - id: design
@@ -58,6 +60,10 @@ steps:
         
         Create an implementation design that addresses all user stories and acceptance criteria in the PRD.
         Reference user story IDs (e.g., US-001) in your design.
+        
+        If .agentic/ exists in the repo:
+        - Save ADR to .agentic/arch/ADR-{timestamp}.md
+        - Save implementation plan to .agentic/plans/PLAN-{timestamp}.md
       sources: "{{steps.investigate.output.sources}}"
       constraints: "{{workflow.input.context}}"
 
@@ -111,6 +117,10 @@ steps:
         If verdict is 'accept', minor refinements only.
         If verdict is 'conditional' or 'reject', address each fatal flaw and serious concern.
         Reference user story IDs from the PRD.
+        
+        If .agentic/ exists in the repo:
+        - Update or save revised ADR to .agentic/arch/ADR-{timestamp}.md
+        - Update or save revised plan to .agentic/plans/PLAN-{timestamp}.md
       sources: "{{steps.investigate.output.sources}}"
       constraints: "{{workflow.input.context}}"
 
@@ -133,6 +143,10 @@ steps:
         Implement the design completely. Ensure all acceptance criteria from the PRD are met.
         Run tests and typecheck before committing.
         Create a new branch named: feature/{{workflow.input.branch_name}}
+        
+        If .agentic/ exists in the repo:
+        - Write test spec to .agentic/tests/SPEC-{timestamp}.md BEFORE implementing
+        - The spec should define test contracts and expected behavior
       constraints: "{{workflow.input.context}}"
       implementation_notes: |
         {{steps.revise.output.implementation_notes}}
