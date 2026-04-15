@@ -92,7 +92,8 @@ async function readMemoryFile(memoryRoot: string, relPath: string): Promise<stri
   try {
     const content = await fs.readFile(path.join(memoryRoot, relPath), "utf-8");
     return content.trim() || null;
-  } catch {
+  } catch (err) {
+    console.debug('[cog] Skipping unreadable memory file:', relPath, err);
     return null;
   }
 }
@@ -105,7 +106,8 @@ async function readMemoryFileIfToday(memoryRoot: string, relPath: string): Promi
     if (new Date(stat.mtime).toDateString() !== today) return null;
     const content = await fs.readFile(fullPath, "utf-8");
     return content.trim() || null;
-  } catch {
+  } catch (err) {
+    console.debug('[cog] Skipping memory file (not found or not today):', relPath, err);
     return null;
   }
 }
@@ -128,9 +130,13 @@ async function scanL0(memoryRoot: string, domain: string): Promise<L0Entry[]> {
             summary: m[1],
           });
         }
-      } catch { /* skip unreadable files */ }
+      } catch (err) {
+        console.debug('[cog] Skipping unreadable L0 file:', path.join(domain, entry.name), err);
+      }
     }
-  } catch { /* domain directory doesn't exist yet */ }
+  } catch (err) {
+    console.debug('[cog] Domain directory does not exist yet:', domain, err);
+  }
   return results;
 }
 
@@ -553,7 +559,9 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
 
         return withFileMutationQueue(filePath, async () => {
           let existing = "";
-          try { existing = await fs.readFile(filePath, "utf-8"); } catch { /* new file */ }
+          try { existing = await fs.readFile(filePath, "utf-8"); } catch (err) {
+            console.debug('[cog] New observations file, creating:', filePath, err);
+          }
 
           if (!existing) {
             const l0 = `<!-- L0: ${params.domain} observations — append-only timestamped events -->`;
@@ -598,7 +606,9 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
 
         return withFileMutationQueue(filePath, async () => {
           let content = "";
-          try { content = await fs.readFile(filePath, "utf-8"); } catch { /* new file */ }
+          try { content = await fs.readFile(filePath, "utf-8"); } catch (err) {
+            console.debug('[cog] New action-items file, creating:', filePath, err);
+          }
 
           if (!content) {
             const l0 = `<!-- L0: ${params.domain} action items — open and completed tasks -->`;

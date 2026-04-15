@@ -64,7 +64,8 @@ describe("DomainContextManager", () => {
     if (manager) {
       try {
         manager.dispose();
-      } catch {
+      } catch (err) {
+        console.debug('[test] Session may not have been initialized:', err);
         // Session may not have been initialized if initialize() threw
       }
     }

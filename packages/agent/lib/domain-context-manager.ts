@@ -271,7 +271,8 @@ export class DomainContextManager {
   private async loadPersonaTemplate(): Promise<string> {
     try {
       return await fs.readFile(this.opts.personaFile, "utf-8");
-    } catch {
+    } catch (err) {
+      console.debug('[domain-context] Persona file not found, using default template:', err);
       return "You are Majordomo, a personal AI chief-of-staff.\nActive domain: {{ACTIVE_DOMAIN}}";
     }
   }

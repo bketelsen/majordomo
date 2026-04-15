@@ -163,7 +163,8 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
               `Please execute the following COG pipeline skill. Memory root: \`${cogMemoryRoot}\`\n\n---\n\n${skillInstructions}`,
               { deliverAs: "followUp" }
             );
-          } catch {
+          } catch (err) {
+            console.debug('[scheduler] Skill file not found, using plain command:', skillFile, err);
             pi.sendUserMessage(`Run COG skill: ${cmd}`, { deliverAs: "followUp" });
           }
         } else {
@@ -278,7 +279,8 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
       let skillInstructions: string;
       try {
         skillInstructions = await fs.readFile(skillFile, "utf-8");
-      } catch {
+      } catch (err) {
+        console.debug('[scheduler] Skill file not found:', skillFile, err);
         ctx.ui.notify(`Skill file .claude/commands/${skill}.md not found`, "error");
         return;
       }

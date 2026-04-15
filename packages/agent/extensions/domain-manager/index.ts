@@ -49,7 +49,8 @@ async function readTelegramMap(dataRoot: string): Promise<TelegramMap> {
   try {
     const content = await fs.readFile(filePath, "utf-8");
     return (yaml.load(content) as TelegramMap) ?? { telegram: { bot_token_env: "TELEGRAM_BOT_TOKEN" }, topics: {} };
-  } catch {
+  } catch (err) {
+    console.debug('[domain-manager] Telegram map not found, using default:', err);
     return { telegram: { bot_token_env: "TELEGRAM_BOT_TOKEN" }, topics: {} };
   }
 }
@@ -96,8 +97,8 @@ async function generateDomainCommand(
   let template: string;
   try {
     template = await fs.readFile(templatePath, "utf-8");
-  } catch {
-    console.warn(`[domain-manager] Template not found at ${templatePath}, skipping command generation`);
+  } catch (err) {
+    console.warn(`[domain-manager] Template not found at ${templatePath}, skipping command generation:`, err);
     return;
   }
 
@@ -127,7 +128,9 @@ async function removeDomainCommand(domainId: string, projectRoot: string): Promi
   try {
     await fs.unlink(commandPath);
     console.log(`[domain-manager] Removed .claude/commands/${commandId}.md`);
-  } catch { /* file didn't exist, fine */ }
+  } catch (err) {
+    console.debug(`[domain-manager] Command file didn't exist:`, commandPath, err);
+  }
 }
 
 async function scaffoldDomainFiles(memoryRoot: string, domainPath: string, files: string[]): Promise<void> {
@@ -376,7 +379,9 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
         try {
           await fs.mkdir(path.dirname(sessionDst), { recursive: true });
           await fs.rename(sessionSrc, sessionDst);
-        } catch { /* session dir may not exist */ }
+        } catch (err) {
+          console.debug('[domain-manager] Session dir may not exist:', sessionSrc, err);
+        }
 
         // Remove generated command file
         await removeDomainCommand(params.id, projectRoot);

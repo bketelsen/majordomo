@@ -44,7 +44,8 @@ export async function runPersonaWizardIfNeeded(
       .split("\n")
       .filter(l => l.trim() && !l.startsWith("<!--") && !l.startsWith("#") && l !== "*");
     if (meaningfulLines.length > 3) return;
-  } catch {
+  } catch (err) {
+    console.debug('[wizard] hot-memory does not exist yet, proceeding with wizard:', err);
     // hot-memory doesn't exist yet — proceed with wizard
   }
 

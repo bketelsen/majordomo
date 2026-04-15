@@ -214,8 +214,8 @@ export class TelegramBot {
     try {
       const content = await fs.readFile(filePath, "utf-8");
       this.map = (yaml.load(content) as TelegramMap) ?? this.map;
-    } catch {
-      console.warn("[telegram] telegram-map.yaml not found, using defaults");
+    } catch (err) {
+      console.debug('[telegram] telegram-map.yaml not found, using defaults:', err);
     }
   }
 }

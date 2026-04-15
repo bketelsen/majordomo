@@ -26,7 +26,8 @@ async function readDomainsManifest(memoryRoot: string): Promise<DomainsManifest>
   try {
     const content = await fs.readFile(filePath, "utf-8");
     return (yaml.load(content) as DomainsManifest) ?? { domains: [] };
-  } catch {
+  } catch (err) {
+    console.debug('[test] domains.yml not found, using empty manifest:', err);
     return { domains: [] };
   }
 }

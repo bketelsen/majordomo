@@ -15,7 +15,8 @@ function resolveTemplate(
       try {
         const parsed = JSON.parse(raw);
         return String(parsed[field] ?? raw); // Fallback to full output if field not found
-      } catch {
+      } catch (err) {
+        console.debug('[test] Failed to parse step output as JSON:', raw, err);
         return raw; // Fallback: whole output if not valid JSON
       }
     })

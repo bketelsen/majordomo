@@ -28,8 +28,8 @@ async function migrateSessionHistory(dataRoot: string): Promise<void> {
   // Check if session dir exists
   try {
     await fs.access(sessionDir);
-  } catch {
-    console.error(`[migrate] Sessions directory not found: ${sessionDir}`);
+  } catch (err) {
+    console.error(`[migrate] Sessions directory not found: ${sessionDir}`, err);
     console.log("[migrate] Nothing to migrate - exiting");
     return;
   }

@@ -50,7 +50,8 @@ const resolveConfigDir = async (userDir: string, defaultDir: string): Promise<st
   try {
     await fs.access(userDir);
     return userDir;  // User config exists, use it
-  } catch {
+  } catch (err) {
+    console.debug('[service] User config dir not accessible, using default:', userDir, err);
     return defaultDir;  // Fall back to default
   }
 };

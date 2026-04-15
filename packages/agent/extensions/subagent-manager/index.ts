@@ -105,7 +105,8 @@ async function loadAgents(agentsDir: string): Promise<AgentDefinition[]> {
   let files: string[] = [];
   try {
     files = await fs.readdir(agentsDir);
-  } catch {
+  } catch (err) {
+    console.debug('[subagent] Agents directory not found:', agentsDir, err);
     return agents;
   }
 
@@ -145,7 +146,8 @@ function parseAgentFile(content: string): AgentDefinition | null {
       on_failure: meta.on_failure as AgentDefinition["on_failure"],
       systemPrompt,
     };
-  } catch {
+  } catch (err) {
+    console.debug('[subagent] Failed to parse agent definition:', content.slice(0, 100), err);
     return null;
   }
 }
@@ -174,7 +176,9 @@ function openRunsDb(dataRoot: string): Database {  const db = new Database(path.
     CREATE TABLE IF NOT EXISTS runs_migration_check (dummy INTEGER);
   `);
   // Add stderr column idempotently (ALTER TABLE throws if column exists in SQLite)
-  try { db.exec(`ALTER TABLE runs ADD COLUMN stderr TEXT`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE runs ADD COLUMN stderr TEXT`); } catch (err) {
+    console.debug('[subagent] stderr column already exists in runs table:', err);
+  }
 
   // Create workflow_steps table
   db.exec(`
@@ -361,7 +365,9 @@ function getPiCommand(): { cmd: string; args: string[] } {
     "/usr/bin/pi",
   ];
   for (const p of candidates) {
-    try { require("fs").accessSync(p); return { cmd: p, args: [] }; } catch { /* try next */ }
+    try { require("fs").accessSync(p); return { cmd: p, args: [] }; } catch (err) {
+      console.debug('[subagent] Pi binary not found at:', p, err);
+    }
   }
 
   // Last resort: hope pi is on PATH
@@ -429,7 +435,9 @@ async function spawnAgent(
               .map((c: { text: string }) => c.text);
             if (textParts.length) finalText = textParts.join("");
           }
-        } catch { /* skip */ }
+        } catch (err) {
+          console.debug('[subagent] Failed to parse JSON event from pi output:', line.slice(0, 50), err);
+        }
       }
 
       resolve({ output: finalText || stdout, exitCode: code ?? 0, stderr });
@@ -502,7 +510,8 @@ function resolveTemplate(
         return Array.isArray(val) || (typeof val === 'object' && val !== null)
           ? JSON.stringify(val)
           : String(val ?? "");
-      } catch {
+      } catch (err) {
+        console.debug('[subagent] Failed to parse JSON output:', jsonStr.slice(0, 100), err);
         return String(raw);
       }
     }
@@ -561,7 +570,8 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
       const manifest = yaml.load(raw) as { domains: Array<{ id: string; workingDir?: string }> };
       const domainEntry = manifest.domains.find(d => d.id === getDomain());
       if (domainEntry?.workingDir) domainWorkingDir = domainEntry.workingDir;
-    } catch {
+    } catch (err) {
+      console.debug('[subagent] Failed to load domains manifest for workingDir:', err);
       // fallback to scratchDir
     }
 
@@ -787,7 +797,8 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
         try {
           const content = await fs.readFile(workflowFile, "utf-8");
           workflowDef = yaml.load(content) as typeof workflowDef;
-        } catch {
+        } catch (err) {
+          console.debug('[subagent] Workflow file not found:', params.workflow, err);
           return {
             content: [{ type: "text", text: `❌ Workflow '${params.workflow}' not found in workflows/` }],
             details: { workflow: params.workflow, found: false },

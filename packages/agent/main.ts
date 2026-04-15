@@ -74,7 +74,8 @@ try {
   personaText = await fs.readFile(PERSONA_FILE, "utf-8");
   // Inject active domain into persona
   personaText = personaText.replace("{{ACTIVE_DOMAIN}}", domain);
-} catch {
+} catch (err) {
+  console.debug('[main] persona/majordomo.md not found, using default persona:', err);
   console.warn("⚠️  persona/majordomo.md not found, using default persona");
 }
 
