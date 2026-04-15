@@ -9,7 +9,6 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import yaml from "js-yaml";
 import {
   createAgentSession,
   createEventBus,
@@ -25,6 +24,7 @@ import { cogMemoryExtensionFactory } from "../extensions/cog-memory/index.ts";
 import { domainManagerExtensionFactory } from "../extensions/domain-manager/index.ts";
 import { subagentManagerExtensionFactory } from "../extensions/subagent-manager/index.ts";
 import { schedulerExtensionFactory } from "../extensions/scheduler/index.ts";
+import { readDomainsManifest } from "../../shared/lib/domains.ts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,10 +35,6 @@ export interface DomainContextManagerOptions {
   personaFile: string;
   agentsDir: string;
   workflowsDir: string;
-}
-
-interface DomainsManifest {
-  domains: Array<{ id: string; status?: string }>;
 }
 
 // ── Shared resources (one per process) ────────────────────────────────────────
@@ -286,13 +282,7 @@ export class DomainContextManager {
 
   // ── Private: read domains manifest ────────────────────────────────────────
 
-  private async readDomainsManifest(): Promise<DomainsManifest> {
-    const filePath = path.join(this.opts.memoryRoot, "domains.yml");
-    try {
-      const content = await fs.readFile(filePath, "utf-8");
-      return (yaml.load(content) as DomainsManifest) ?? { domains: [] };
-    } catch {
-      return { domains: [] };
-    }
+  private async readDomainsManifest() {
+    return readDomainsManifest(this.opts.memoryRoot);
   }
 }

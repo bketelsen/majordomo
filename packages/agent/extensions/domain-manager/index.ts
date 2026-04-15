@@ -13,6 +13,7 @@ import * as fs from "node:fs/promises";
 import yaml from "js-yaml";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { type CogDomain, type DomainsManifest, readDomainsManifest } from "../../../shared/lib/domains.ts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -21,23 +22,7 @@ export interface DomainManagerOptions {
   memoryRoot: string;
   dataRoot: string;
   projectRoot: string;
-  getDomain?: () => string;  // Dynamic domain accessor
-}
-
-interface CogDomain {
-  id: string;
-  path: string;
-  type: string;
-  label: string;
-  triggers: string[];
-  files: string[];
-  status?: "active" | "archived";
-  created_at?: string;
-  workingDir?: string;
-}
-
-interface DomainsManifest {
-  domains: CogDomain[];
+  getDomain?: () => string;  // Dynamic domain accessor;
 }
 
 interface TelegramTopic {
@@ -52,16 +37,6 @@ interface TelegramMap {
 }
 
 // ── YAML helpers ──────────────────────────────────────────────────────────────
-
-async function readDomainsManifest(memoryRoot: string): Promise<DomainsManifest> {
-  const filePath = path.join(memoryRoot, "domains.yml");
-  try {
-    const content = await fs.readFile(filePath, "utf-8");
-    return (yaml.load(content) as DomainsManifest) ?? { domains: [] };
-  } catch {
-    return { domains: [] };
-  }
-}
 
 async function writeDomainsManifest(memoryRoot: string, manifest: DomainsManifest): Promise<void> {
   const filePath = path.join(memoryRoot, "domains.yml");

@@ -25,9 +25,9 @@ import * as fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
-import yaml from "js-yaml";
 import { Database } from "bun:sqlite";
 import { listAllContainers, dockerAction, incusAction } from "./lib/containers.ts";
+import { readDomainsManifest, type CogDomain } from "../../shared/lib/domains.ts";
 
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
 import { indexHTML, isCompiledBinary, manifest, serviceWorker, appleTouchIcon } from "./assets.ts";
@@ -313,24 +313,9 @@ async function readSessionMessages(domain: string, limit = 100, before?: number)
 
 // ── Domains helper ─────────────────────────────────────────────────────────────
 
-interface Domain {
-  id: string;
-  path: string;
-  type: string;
-  label: string;
-  triggers: string[];
-  status?: string;
-}
-
-async function readDomains(): Promise<Domain[]> {
-  const filePath = path.join(MEMORY_ROOT, "domains.yml");
-  try {
-    const content = await fs.readFile(filePath, "utf-8");
-    const manifest = yaml.load(content) as { domains: Domain[] };
-    return (manifest.domains ?? []).filter(d => d.status !== "archived");
-  } catch {
-    return [];
-  }
+async function readDomains(): Promise<CogDomain[]> {
+  const manifest = await readDomainsManifest(MEMORY_ROOT);
+  return manifest.domains.filter(d => d.status !== "archived");
 }
 
 // ── Plugin registry ───────────────────────────────────────────────────────────
