@@ -880,8 +880,9 @@ app.get("/sse", (c) => {
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",  // disable nginx/proxy buffering
+      // Note: Connection: keep-alive is HTTP/1.1 only; omit for HTTP/2 compat
       "Access-Control-Allow-Origin": "*",
     },
   });
