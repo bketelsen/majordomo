@@ -868,11 +868,33 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
                 const item = iterationArray[i];
                 const itemNumber = i + 1;
 
+                // Create step record
+                const stepRecord = createWorkflowStep(
+                  db, workflowId, params.workflow, step, i, iterationArray.length
+                );
+                
+                // Emit step start
+                pi.events.emit("workflow:step_start", {
+                  workflowId,
+                  stepId: step.id,
+                  agent: step.agent,
+                  recordId: stepRecord.id,
+                  iterationIndex: i,
+                  iterationTotal: iterationArray.length,
+                  timestamp: Date.now()
+                });
+
                 // Resolve input with {{item}} and {{item.field}} support
                 const resolvedInput: Record<string, unknown> = {};
                 for (const [key, tmpl] of Object.entries(step.input)) {
                   resolvedInput[key] = resolveTemplate(tmpl, workflowInput, stepOutputs, item);
                 }
+
+                updateWorkflowStep(db, stepRecord.id, { 
+                  status: 'running', 
+                  input: JSON.stringify(resolvedInput),
+                  startedAt: Date.now() 
+                });
 
                 pi.sendUserMessage(
                   `  ⚡ Item ${itemNumber}/${iterationArray.length}: ${typeof item === 'object' && item !== null && 'title' in item ? (item as { title: string }).title : 'running'}…`,
@@ -885,6 +907,22 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
                   if (result.exitCode === 0) {
                     outputs.push(result.output);
                     successCount++;
+                    updateWorkflowStep(db, stepRecord.id, { 
+                      status: 'done', 
+                      output: result.output, 
+                      finishedAt: Date.now() 
+                    });
+                    
+                    pi.events.emit("workflow:step_complete", {
+                      workflowId,
+                      stepId: step.id,
+                      agent: step.agent,
+                      recordId: stepRecord.id,
+                      iterationIndex: i,
+                      output: result.output,
+                      timestamp: Date.now()
+                    });
+                    
                     pi.sendUserMessage(
                       `  ✅ Item ${itemNumber}/${iterationArray.length} completed`,
                       { deliverAs: "followUp" }
@@ -894,11 +932,49 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
                     const retryCount = agentDef.on_failure?.retry ?? 0;
                     if (retryCount === 0) {
                       skipCount++;
+                      updateWorkflowStep(db, stepRecord.id, { 
+                        status: 'skipped', 
+                        error: result.stderr,
+                        finishedAt: Date.now() 
+                      });
+                      
+                      pi.events.emit("workflow:step_failed", {
+                        workflowId,
+                        stepId: step.id,
+                        agent: step.agent,
+                        recordId: stepRecord.id,
+                        error: result.stderr,
+                        skipped: true,
+                        timestamp: Date.now()
+                      });
+                      
                       pi.sendUserMessage(
                         `  ⚠️  Item ${itemNumber}/${iterationArray.length} failed, skipping: ${result.stderr.slice(0, 100)}`,
                         { deliverAs: "followUp" }
                       );
                     } else {
+                      updateWorkflowStep(db, stepRecord.id, { 
+                        status: 'failed', 
+                        error: result.stderr,
+                        finishedAt: Date.now() 
+                      });
+                      
+                      pi.events.emit("workflow:step_failed", {
+                        workflowId,
+                        stepId: step.id,
+                        agent: step.agent,
+                        recordId: stepRecord.id,
+                        error: result.stderr,
+                        timestamp: Date.now()
+                      });
+                      
+                      pi.events.emit("workflow:complete", { 
+                        workflowId, 
+                        workflowName: params.workflow,
+                        success: false,
+                        timestamp: Date.now()
+                      });
+                      
                       // Abort the whole workflow if retry is configured
                       pi.sendUserMessage(
                         `❌ Workflow **${params.workflow}** stopped at step **${step.id}** item ${itemNumber}: ${result.stderr.slice(0, 200)}`,
@@ -911,11 +987,30 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
                   const retryCount = agentDef.on_failure?.retry ?? 0;
                   if (retryCount === 0) {
                     skipCount++;
+                    updateWorkflowStep(db, stepRecord.id, { 
+                      status: 'skipped', 
+                      error: String(err),
+                      finishedAt: Date.now() 
+                    });
+                    
                     pi.sendUserMessage(
                       `  ⚠️  Item ${itemNumber}/${iterationArray.length} failed, skipping: ${String(err).slice(0, 100)}`,
                       { deliverAs: "followUp" }
                     );
                   } else {
+                    updateWorkflowStep(db, stepRecord.id, { 
+                      status: 'failed', 
+                      error: String(err),
+                      finishedAt: Date.now() 
+                    });
+                    
+                    pi.events.emit("workflow:complete", { 
+                      workflowId, 
+                      workflowName: params.workflow,
+                      success: false,
+                      timestamp: Date.now()
+                    });
+                    
                     pi.sendUserMessage(
                       `❌ Workflow **${params.workflow}** stopped at step **${step.id}** item ${itemNumber}: ${String(err).slice(0, 200)}`,
                       { deliverAs: "followUp" }
@@ -930,14 +1025,22 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
                 `✅ Step **${step.id}** complete: ${successCount} succeeded${skipCount > 0 ? `, ${skipCount} skipped` : ''}`,
                 { deliverAs: "followUp" }
               );
-              pi.events.emit("workflow:step_complete", {
+            } else {
+              // Normal single execution (no iteration)
+              // Create step record
+              const stepRecord = createWorkflowStep(
+                db, workflowId, params.workflow, step
+              );
+              
+              // Emit step start
+              pi.events.emit("workflow:step_start", {
                 workflowId,
                 stepId: step.id,
                 agent: step.agent,
-                output: outputs,
+                recordId: stepRecord.id,
+                timestamp: Date.now()
               });
-            } else {
-              // Normal single execution (no iteration)
+              
               // Resolve template expressions:
               //   {{workflow.input.key}}          — workflow input field
               //   {{steps.id.output}}             — full step output text
@@ -947,31 +1050,105 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
                 resolvedInput[key] = resolveTemplate(tmpl, workflowInput, stepOutputs, null);
               }
 
+              updateWorkflowStep(db, stepRecord.id, { 
+                status: 'running', 
+                input: JSON.stringify(resolvedInput),
+                startedAt: Date.now() 
+              });
+
               pi.sendUserMessage(
                 `⚡ Workflow **${params.workflow}** — step **${step.id}** (${step.agent}) starting…`,
                 { deliverAs: "followUp" }
               );
 
-              const result = await spawnAgent(agentDef, resolvedInput, domainWorkingDir, signal);
+              try {
+                const result = await spawnAgent(agentDef, resolvedInput, domainWorkingDir, signal);
 
-              if (result.exitCode !== 0) {
+                if (result.exitCode !== 0) {
+                  updateWorkflowStep(db, stepRecord.id, { 
+                    status: 'failed', 
+                    error: result.stderr,
+                    finishedAt: Date.now() 
+                  });
+                  
+                  pi.events.emit("workflow:step_failed", {
+                    workflowId,
+                    stepId: step.id,
+                    agent: step.agent,
+                    recordId: stepRecord.id,
+                    error: result.stderr,
+                    timestamp: Date.now()
+                  });
+                  
+                  pi.events.emit("workflow:complete", { 
+                    workflowId, 
+                    workflowName: params.workflow,
+                    success: false,
+                    timestamp: Date.now()
+                  });
+                  
+                  pi.sendUserMessage(
+                    `❌ Workflow **${params.workflow}** stopped at step **${step.id}**: ${result.stderr.slice(0, 200)}`,
+                    { deliverAs: "followUp" }
+                  );
+                  return;
+                }
+
+                stepOutputs[step.id] = result.output;
+                updateWorkflowStep(db, stepRecord.id, { 
+                  status: 'done', 
+                  output: result.output, 
+                  finishedAt: Date.now() 
+                });
+                
+                pi.events.emit("workflow:step_complete", {
+                  workflowId,
+                  stepId: step.id,
+                  agent: step.agent,
+                  recordId: stepRecord.id,
+                  output: result.output,
+                  timestamp: Date.now()
+                });
+              } catch (err) {
+                updateWorkflowStep(db, stepRecord.id, { 
+                  status: 'failed', 
+                  error: String(err),
+                  finishedAt: Date.now() 
+                });
+                
+                pi.events.emit("workflow:step_failed", {
+                  workflowId,
+                  stepId: step.id,
+                  agent: step.agent,
+                  recordId: stepRecord.id,
+                  error: String(err),
+                  timestamp: Date.now()
+                });
+                
+                pi.events.emit("workflow:complete", { 
+                  workflowId, 
+                  workflowName: params.workflow,
+                  success: false,
+                  timestamp: Date.now()
+                });
+                
                 pi.sendUserMessage(
-                  `❌ Workflow **${params.workflow}** stopped at step **${step.id}**: ${result.stderr.slice(0, 200)}`,
+                  `❌ Workflow **${params.workflow}** stopped at step **${step.id}**: ${String(err).slice(0, 200)}`,
                   { deliverAs: "followUp" }
                 );
                 return;
               }
-
-              stepOutputs[step.id] = result.output;
-              pi.events.emit("workflow:step_complete", {
-                workflowId,
-                stepId: step.id,
-                agent: step.agent,
-                output: result.output,
-              });
             }
           }
 
+          // Workflow completed successfully
+          pi.events.emit("workflow:complete", { 
+            workflowId, 
+            workflowName: params.workflow,
+            success: true,
+            timestamp: Date.now()
+          });
+          
           const lastStep = workflowDef.steps[workflowDef.steps.length - 1];
           const lastOutput = stepOutputs[lastStep.id];
           const outputText = Array.isArray(lastOutput) 
