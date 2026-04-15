@@ -2,7 +2,7 @@
  * Hook for managing SSE connection and streaming updates
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { TimelineItem } from './useMessages';
 
 export interface ToolCall {
@@ -30,6 +30,8 @@ export interface SSEState {
 }
 
 export function useSSE(activeDomain: string) {
+  const activeDomainRef = useRef(activeDomain);
+  activeDomainRef.current = activeDomain; // keep ref in sync without re-running effect
   const [state, setState] = useState<SSEState>({
     isConnected: false,
     isStreaming: false,
@@ -83,7 +85,7 @@ export function useSSE(activeDomain: string) {
         if (!data) return;
 
         // Only process events for the active domain (except domain events)
-        if (data.domain && data.domain !== activeDomain && !event.startsWith('domain:')) {
+        if (data.domain && data.domain !== activeDomainRef.current && !event.startsWith('domain:')) {
           return;
         }
 
@@ -197,7 +199,7 @@ export function useSSE(activeDomain: string) {
       destroyed = true;
       evtSource?.close();
     };
-  }, [activeDomain, clearStreamingState]);
+  }, []); // SSE connects once — domain filtering uses ref, no reconnect needed
 
   const dismissSuggestion = useCallback(() => {
     setState(prev => ({ ...prev, suggestedSwitch: null }));
