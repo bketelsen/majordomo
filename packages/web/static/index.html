@@ -732,12 +732,20 @@ function addToolCall(toolName, args) {
   }
 
   card.innerHTML = parts.join('');
-  // Insert before streaming-msg/thinking block so tool calls appear above agent text
+  // Insert before streaming-msg/thinking block OR before the last finalized agent message
+  // This ensures tool calls always appear above the text response they relate to
   const streamEl = document.getElementById('streaming-msg') || document.getElementById('streaming-thinking');
   if (streamEl) {
     container.insertBefore(card, streamEl);
   } else {
-    container.appendChild(card);
+    // No active stream — insert before the last .msg.agent element (finalized from previous turn)
+    const agentMsgs = container.querySelectorAll('.msg.agent');
+    const lastAgentMsg = agentMsgs[agentMsgs.length - 1];
+    if (lastAgentMsg) {
+      container.insertBefore(card, lastAgentMsg);
+    } else {
+      container.appendChild(card);
+    }
   }
   scrollToBottom();
 }
