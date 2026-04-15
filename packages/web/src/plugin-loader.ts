@@ -168,7 +168,7 @@ export function registerPlugins(
     }
   }
 
-  // Serve plugin client modules as static files
+  // Serve plugin client modules — transpile TypeScript to JavaScript on the fly
   app.get("/plugins/:id/client.js", async (c) => {
     const id = c.req.param("id");
     const plugin = plugins.find(p => p.manifest.id === id);
@@ -178,11 +178,14 @@ export function registerPlugins(
     }
 
     try {
-      const content = await fs.readFile(plugin.clientPath, "utf-8");
-      return new Response(content, {
+      // Use Bun's transpiler to convert TypeScript to browser-compatible JS
+      const source = await fs.readFile(plugin.clientPath, "utf-8");
+      const transpiler = new Bun.Transpiler({ loader: "ts", target: "browser" });
+      const js = transpiler.transformSync(source);
+      return new Response(js, {
         headers: { 
           "Content-Type": "application/javascript",
-          "Cache-Control": "no-cache", // Dev mode - always reload
+          "Cache-Control": "no-cache",
         },
       });
     } catch (err) {
