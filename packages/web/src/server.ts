@@ -18,7 +18,6 @@
  */
 
 import { Hono } from "hono";
-import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
@@ -958,11 +957,140 @@ app.get("*", async (c) => {
 
 export { app, PORT, initializePlugins };
 
+// ── WebSocket PTY handler ────────────────────────────────────────────────────
+
+interface TerminalWebSocket {
+  shell?: ReturnType<typeof Bun.spawn>;
+  send(message: string | ArrayBuffer): void;
+  close(): void;
+}
+
+const terminalSockets = new Map<number, TerminalWebSocket>();
+let socketIdCounter = 0;
+
+const websocketHandler = {
+  open(ws: TerminalWebSocket) {
+    const socketId = ++socketIdCounter;
+    terminalSockets.set(socketId, ws);
+
+    // Spawn bash shell with PTY-like environment
+    const shell = Bun.spawn(['bash', '-l'], {
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor',
+        ...process.env,
+      },
+    });
+
+    ws.shell = shell;
+
+    // Pipe shell stdout to WebSocket
+    (async () => {
+      try {
+        const reader = shell.stdout.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          // Send the ArrayBuffer underlying the Uint8Array
+          ws.send(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+        }
+      } catch (err) {
+        console.error('[term] stdout read error:', err);
+      }
+    })();
+
+    // Pipe shell stderr to WebSocket
+    (async () => {
+      try {
+        const reader = shell.stderr.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          // Send the ArrayBuffer underlying the Uint8Array
+          ws.send(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+        }
+      } catch (err) {
+        console.error('[term] stderr read error:', err);
+      }
+    })();
+
+    // Handle shell exit
+    shell.exited.then(() => {
+      terminalSockets.delete(socketId);
+      try {
+        ws.close();
+      } catch { /* ignore */ }
+    });
+
+    console.log(`[term] Shell spawned for WebSocket #${socketId}`);
+  },
+
+  message(ws: TerminalWebSocket, message: string | Buffer) {
+    if (!ws.shell || ws.shell.exitCode !== null) return;
+
+    try {
+      // Handle resize messages
+      if (typeof message === 'string') {
+        try {
+          const data = JSON.parse(message);
+          if (data.type === 'resize') {
+            // Bun.spawn doesn't support PTY resize directly
+            // We could use SIGWINCH but it's not critical for basic functionality
+            return;
+          }
+        } catch {
+          // Not JSON, treat as input
+        }
+      }
+
+      // Pipe WebSocket messages to shell stdin
+      if (ws.shell.stdin && typeof ws.shell.stdin !== 'number') {
+        const data = typeof message === 'string' ? new TextEncoder().encode(message) : message;
+        ws.shell.stdin.write(data);
+      }
+    } catch (err) {
+      console.error('[term] stdin write error:', err);
+    }
+  },
+
+  close(ws: TerminalWebSocket) {
+    if (ws.shell) {
+      try {
+        ws.shell.kill();
+      } catch { /* ignore */ }
+    }
+    console.log('[term] WebSocket closed');
+  },
+};
+
 // ── Standalone entry (bun packages/web/src/server.ts) ────────────────────────
 
 if (import.meta.main) {
   await initializePlugins();
-  serve({ fetch: app.fetch, port: PORT }, (info) => {
-    console.log(`🌐  Majordomo Web listening on http://localhost:${info.port}`);
+
+  // Use Bun.serve for WebSocket support
+  Bun.serve({
+    port: PORT,
+    fetch(req, server) {
+      const url = new URL(req.url);
+      
+      // Upgrade /term to WebSocket
+      if (url.pathname === '/term') {
+        const upgraded = server.upgrade(req);
+        if (upgraded) {
+          return undefined; // WebSocket upgrade successful
+        }
+        return new Response('WebSocket upgrade failed', { status: 400 });
+      }
+
+      // Handle all other requests with Hono
+      return app.fetch(req, { waitUntil: () => {} });
+    },
+    websocket: websocketHandler,
   });
+
+  console.log(`🌐  Majordomo Web listening on http://localhost:${PORT}`);
 }

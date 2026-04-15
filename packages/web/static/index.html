@@ -11,6 +11,12 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Majordomo">
   <title>Majordomo</title>
+  
+  <!-- xterm.js for terminal emulator -->
+  <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css">
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -204,6 +210,83 @@
     .banner-dismiss { cursor: pointer; color: var(--text-dim); font-size: 14px; padding: 0 4px; }
     .banner-dismiss:hover { color: var(--text); }
 
+    /* ── Quake terminal ───────────────────────────────────────────────────── */
+    .quake-terminal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 40vh;
+      z-index: 2000;
+      background: var(--bg);
+      border-bottom: 2px solid var(--accent);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      transform: translateY(-100%);
+      transition: transform 0.2s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .quake-terminal.open {
+      transform: translateY(0);
+    }
+    
+    #quake-terminal-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    
+    #quake-terminal-bar button {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      font-size: 18px;
+      cursor: pointer;
+      padding: 0 8px;
+      transition: color 0.15s;
+    }
+    
+    #quake-terminal-bar button:hover {
+      color: var(--error);
+    }
+    
+    #term-container {
+      flex: 1;
+      overflow: hidden;
+      padding: 8px;
+    }
+    
+    .terminal-btn {
+      padding: 6px 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      touch-action: manipulation;
+      min-height: 44px;
+    }
+    
+    .terminal-btn:hover {
+      background: var(--surface);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
     /* ── Mobile responsive ────────────────────────────────────────────────── */
     @media (max-width: 768px) {
       html, body { overflow-x: hidden; }
@@ -302,11 +385,23 @@
       <!-- domain tabs rendered by JS -->
     </div>
     <button class="tab-add" title="New domain" onclick="openNewDomainModal()">+</button>
+    <button class="terminal-btn" title="Open terminal (̀)" onclick="toggleQuakeTerm()">
+      <span>❯_</span>
+    </button>
     <div id="header-right">
       <span>Domain: <strong id="active-domain-badge">general</strong></span>
       <span id="model-label">···</span>
     </div>
   </header>
+
+  <!-- Quake-style slide-down terminal -->
+  <div id="quake-terminal" class="quake-terminal">
+    <div id="quake-terminal-bar">
+      <span>❯_ Terminal</span>
+      <button onclick="closeQuakeTerm()" title="Close terminal">✕</button>
+    </div>
+    <div id="term-container"></div>
+  </div>
 
   <!-- Chat pane -->
   <main id="chat-pane">
@@ -1396,6 +1491,188 @@ function restoreWidgetState() {
     }
   } catch { /* ignore */ }
 }
+
+// ── Quake Terminal ──────────────────────────────────────────────────────
+
+let terminal = null;
+let terminalSocket = null;
+let fitAddon = null;
+let isTerminalOpen = false;
+
+function openQuakeTerm() {
+  const container = document.getElementById('quake-terminal');
+  const termContainer = document.getElementById('term-container');
+  
+  container.classList.add('open');
+  isTerminalOpen = true;
+  
+  // Initialize terminal if not exists
+  if (!terminal) {
+    terminal = new Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily: 'JetBrains Mono, Fira Code, Cascadia Code, monospace',
+      theme: {
+        background: '#0c0a09',
+        foreground: '#fef3c7',
+        cursor: '#d97706',
+        selection: 'rgba(217, 119, 6, 0.3)',
+        black: '#0c0a09',
+        red: '#ef4444',
+        green: '#10b981',
+        yellow: '#f59e0b',
+        blue: '#3b82f6',
+        magenta: '#a855f7',
+        cyan: '#06b6d4',
+        white: '#fef3c7',
+        brightBlack: '#78716c',
+        brightRed: '#f87171',
+        brightGreen: '#34d399',
+        brightYellow: '#fbbf24',
+        brightBlue: '#60a5fa',
+        brightMagenta: '#c084fc',
+        brightCyan: '#22d3ee',
+        brightWhite: '#fffbeb',
+      },
+    });
+    
+    fitAddon = new FitAddon.FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(termContainer);
+    
+    // Connect WebSocket
+    connectTerminalSocket();
+    
+    // Handle terminal input
+    terminal.onData((data) => {
+      if (terminalSocket && terminalSocket.readyState === WebSocket.OPEN) {
+        terminalSocket.send(data);
+      }
+    });
+    
+    // Fit terminal to container
+    setTimeout(() => {
+      fitAddon.fit();
+      // Send resize info to server
+      if (terminalSocket && terminalSocket.readyState === WebSocket.OPEN) {
+        terminalSocket.send(JSON.stringify({
+          type: 'resize',
+          cols: terminal.cols,
+          rows: terminal.rows,
+        }));
+      }
+    }, 100);
+  } else {
+    // Reconnect if disconnected
+    if (!terminalSocket || terminalSocket.readyState !== WebSocket.OPEN) {
+      connectTerminalSocket();
+    }
+    // Re-fit terminal
+    setTimeout(() => fitAddon.fit(), 100);
+  }
+  
+  // Focus terminal
+  terminal.focus();
+}
+
+function closeQuakeTerm() {
+  const container = document.getElementById('quake-terminal');
+  container.classList.remove('open');
+  isTerminalOpen = false;
+}
+
+function toggleQuakeTerm() {
+  if (isTerminalOpen) {
+    closeQuakeTerm();
+  } else {
+    openQuakeTerm();
+  }
+}
+
+function connectTerminalSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/term`;
+  
+  terminalSocket = new WebSocket(wsUrl);
+  
+  terminalSocket.onopen = () => {
+    console.log('[term] Connected');
+    if (terminal) {
+      terminal.write('\r\n\x1b[32m[Terminal connected]\x1b[0m\r\n');
+      // Send initial resize
+      terminalSocket.send(JSON.stringify({
+        type: 'resize',
+        cols: terminal.cols,
+        rows: terminal.rows,
+      }));
+    }
+  };
+  
+  terminalSocket.onmessage = (event) => {
+    if (terminal) {
+      if (event.data instanceof Blob) {
+        // Handle binary data
+        event.data.arrayBuffer().then((buffer) => {
+          const uint8Array = new Uint8Array(buffer);
+          terminal.write(uint8Array);
+        });
+      } else if (event.data instanceof ArrayBuffer) {
+        const uint8Array = new Uint8Array(event.data);
+        terminal.write(uint8Array);
+      } else {
+        // Handle text data
+        terminal.write(event.data);
+      }
+    }
+  };
+  
+  terminalSocket.onerror = (error) => {
+    console.error('[term] WebSocket error:', error);
+    if (terminal) {
+      terminal.write('\r\n\x1b[31m[Connection error]\x1b[0m\r\n');
+    }
+  };
+  
+  terminalSocket.onclose = () => {
+    console.log('[term] WebSocket closed');
+    if (terminal && isTerminalOpen) {
+      terminal.write('\r\n\x1b[33m[Connection closed]\x1b[0m\r\n');
+    }
+    terminalSocket = null;
+  };
+}
+
+// Handle window resize
+window.addEventListener('resize', () => {
+  if (terminal && fitAddon && isTerminalOpen) {
+    fitAddon.fit();
+    if (terminalSocket && terminalSocket.readyState === WebSocket.OPEN) {
+      terminalSocket.send(JSON.stringify({
+        type: 'resize',
+        cols: terminal.cols,
+        rows: terminal.rows,
+      }));
+    }
+  }
+});
+
+// Backtick keybind to toggle terminal
+document.addEventListener('keydown', (e) => {
+  // Check for backtick key (`) - don't trigger if user is typing in an input
+  if (e.key === '`' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const target = e.target;
+    // Only toggle if not in an input/textarea
+    if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+      toggleQuakeTerm();
+    }
+  }
+  
+  // ESC to close terminal when it's open
+  if (e.key === 'Escape' && isTerminalOpen) {
+    closeQuakeTerm();
+  }
+});
 
 // ── Mobile sidebar toggle ─────────────────────────────────────────────────────
 
