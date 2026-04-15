@@ -618,7 +618,7 @@ app.get("/sw.js", async (c) => {
 
 app.get("/apple-touch-icon.png", async (c) => {
   if (isCompiledBinary()) {
-    return new Response(appleTouchIcon, {
+    return new Response(appleTouchIcon as unknown as BodyInit, {
       headers: { "Content-Type": "image/png" },
     });
   }
