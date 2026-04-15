@@ -764,6 +764,48 @@ app.post("/webhooks/:secret", async (c) => {
   return c.json({ received: true, job: jobId });
 });
 
+// Webhook trigger by job ID — Phase 2 implementation
+// POST /webhooks/jobs/:id to trigger a webhook-type job
+app.post("/webhooks/jobs/:id", async (c) => {
+  const jobId = c.req.param("id");
+  const dbPath = path.join(DATA_ROOT, "scheduler.db");
+  
+  let job: Record<string, unknown> | undefined;
+  try {
+    const db = new Database(dbPath, { readonly: true });
+    job = db.prepare("SELECT * FROM jobs WHERE id = ? AND enabled = 1").get(jobId) as Record<string, unknown> | undefined;
+    db.close();
+  } catch (err) {
+    return c.json({ error: "Scheduler database not available", details: String(err) }, 503);
+  }
+
+  if (!job) {
+    return c.json({ error: "Job not found or disabled", job_id: jobId }, 404);
+  }
+
+  // Verify this is a webhook-type job
+  const triggerType = (job.trigger_type as string) ?? 'cron';
+  if (triggerType !== 'webhook') {
+    return c.json({ error: "Job is not a webhook-triggered job", job_id: jobId, trigger_type: triggerType }, 400);
+  }
+
+  const payload = await c.req.json().catch(() => ({}));
+  
+  // Emit event for scheduler to execute the job
+  webEvents.emit('webhook:trigger', { jobId, payload });
+
+  // Record the trigger in runs table
+  try {
+    const db = new Database(dbPath);
+    db.prepare("INSERT INTO runs (job_id, ran_at, success) VALUES (?, datetime('now'), 1)").run(jobId);
+    db.close();
+  } catch {
+    // Non-fatal if we can't record the run
+  }
+
+  return c.json({ triggered: true, job: jobId, payload });
+});
+
 
 
 // ── Server-Sent Events (real-time stream) ─────────────────────────────────────

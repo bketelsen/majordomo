@@ -147,6 +147,9 @@ await manager.initialize();
 // Expose manager globally so the web server can route messages to it
 globalThis.__majordomoManager = manager;
 
+// Expose webEvents globally so extensions can subscribe to web events
+(globalThis as Record<string, unknown>).__majordomoWebEvents = webEvents;
+
 // Forward agent session events to the web event bus
 sharedEventBus.on("domain:created", (data: unknown) => webEvents.emit("domain:created", data));
 sharedEventBus.on("domain:deleted", (data: unknown) => webEvents.emit("domain:deleted", data));
