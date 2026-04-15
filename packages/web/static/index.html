@@ -79,12 +79,16 @@
     .msg em { color: var(--text-dim); }
 
     /* Thinking + tool activity blocks */
-    .activity-block { align-self: flex-start; width: min(85%, 100%); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; border: 1px solid rgba(124,106,247,0.22); background: rgba(124,106,247,0.06); color: var(--text); overflow-wrap: anywhere; word-break: break-word; }
+    .activity-block { align-self: flex-start; width: min(85%, 100%); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; border: 1px solid rgba(124,106,247,0.22); background: rgba(124,106,247,0.06); color: var(--text); overflow-wrap: anywhere; word-break: break-word; transition: max-height 0.3s ease; }
     .activity-block.thinking-block { background: rgba(124,106,247,0.08); }
-    .activity-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--accent); }
+    .activity-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--accent); cursor: pointer; user-select: none; }
+    .activity-block.collapsed .activity-head { margin-bottom: 0; }
+    .activity-block.collapsed .activity-subtitle, .activity-block.collapsed .activity-section { display: none; }
     .activity-icon { flex-shrink: 0; }
     .activity-title { font-family: var(--font-mono); }
     .activity-status { font-size: 11px; color: var(--text-dim); margin-left: auto; }
+    .activity-chevron { font-size: 10px; color: var(--text-dim); transition: transform 0.2s; margin-left: 6px; }
+    .activity-block.collapsed .activity-chevron { transform: rotate(-90deg); }
     .activity-subtitle { font-size: 11px; color: var(--text-dim); margin: -3px 0 8px 22px; word-break: break-word; }
     .activity-section { margin-top: 8px; }
     .activity-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
@@ -638,12 +642,13 @@ function renderToolCallMessage(m) {
   }
 
   return `
-    <div class="activity-block tool-card" data-id="${m.id}" data-tool="${escapeHtml(m.toolName || 'tool')}">
-      <div class="activity-head">
+    <div class="activity-block tool-card collapsed" data-id="${m.id}" data-tool="${escapeHtml(m.toolName || 'tool')}">
+      <div class="activity-head" onclick="toggleToolCard('${m.id}')">
         <span class="activity-icon ${statusClass}">${icon}</span>
         <span class="activity-title">${escapeHtml(m.toolName || 'tool')}</span>
         ${status === 'running' ? '<span class="activity-spinner"></span>' : ''}
         <span class="activity-status ${statusClass}">${statusText}</span>
+        <span class="activity-chevron">▾</span>
       </div>
       ${bodyParts.join('')}
     </div>
@@ -713,12 +718,12 @@ function addToolCall(toolName, args) {
   const subtitle = getToolSubtitle(toolName, args);
 
   const card = document.createElement('div');
-  card.className = 'activity-block tool-card';
+  card.className = 'activity-block tool-card collapsed';
   card.id = cardId;
   card.dataset.tool = toolName;
 
   const parts = [
-    `<div class="activity-head"><span class="activity-icon">▸</span><span class="activity-title">${escapeHtml(toolName)}</span><span class="activity-spinner"></span><span class="activity-status">running</span></div>`
+    `<div class="activity-head" onclick="toggleToolCard('${cardId}')"><span class="activity-icon">▸</span><span class="activity-title">${escapeHtml(toolName)}</span><span class="activity-spinner"></span><span class="activity-status">running</span><span class="activity-chevron">▾</span></div>`
   ];
 
   if (subtitle) parts.push(`<div class="activity-subtitle">${escapeHtml(subtitle)}</div>`);
@@ -777,6 +782,7 @@ function getToolSubtitle(toolName, args) {
 function toggleToolCard(cardId) {
   const card = document.getElementById(cardId);
   if (!card) return;
+  card.classList.toggle('collapsed');
 }
 
 function finalizeToolCall(toolName, isError) {
@@ -801,6 +807,10 @@ function finalizeToolCall(toolName, isError) {
   }
 
   if (spinner) spinner.remove();
+
+  if (isError) {
+    card.classList.remove('collapsed');
+  }
 }
 
 function finalizeStreaming(fullText) {
