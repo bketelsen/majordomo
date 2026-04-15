@@ -44,6 +44,14 @@ fi
 VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev-$(date +%Y%m%d-%H%M%S)")
 log "Version: $VERSION"
 
+# ── Build React frontend ──────────────────────────────────────────────────────
+
+log "Building React frontend..."
+cd "$REPO_ROOT/packages/web" || die "packages/web not found"
+bun install --frozen-lockfile || die "Frontend dependency install failed"
+bun run build:client || die "Frontend build failed"
+cd "$REPO_ROOT"
+
 # ── Rotate deployments ────────────────────────────────────────────────────────
 
 mkdir -p "$MAJORDOMO_HOME"

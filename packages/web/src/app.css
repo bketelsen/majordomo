@@ -1,0 +1,149 @@
+/* Majordomo React App Styles */
+/* Dune amber theme CSS variables and base styles */
+
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ── CSS Reset ────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── CSS Variables (Dune Amber Theme) ──────────────────────────────────── */
+:root {
+  --bg:        #0c0a09;
+  --surface:   #1c1917;
+  --surface2:  #292524;
+  --border:    #78350f;
+  --accent:    #d97706;
+  --accent-dim:#92400e;
+  --text:      #fef3c7;
+  --text-dim:  #78716c;
+  --user-bg:   #1c1917;
+  --agent-bg:  #0f0a04;
+  --success:   #10b981;
+  --warning:   #f59e0b;
+  --error:     #ef4444;
+  --radius:    8px;
+  --font:      'Rajdhani', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+/* ── Base Styles ───────────────────────────────────────────────────────── */
+html, body {
+  height: 100%;
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  background-image: 
+    radial-gradient(ellipse at top right, rgba(120,53,15,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at bottom left, rgba(146,64,14,0.06) 0%, transparent 60%);
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+#root {
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* ── Layout Grid ───────────────────────────────────────────────────────── */
+.app-layout {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+.header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.header h1 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-family: var(--font);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.header svg {
+  width: 24px;
+  height: 24px;
+  fill: var(--accent);
+  flex-shrink: 0;
+}
+
+/* ── Main Content ──────────────────────────────────────────────────────── */
+.chat-pane {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  min-width: 0;
+  padding: 24px;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  padding: 24px;
+  background: var(--surface);
+}
+
+/* ── Placeholder text ──────────────────────────────────────────────────── */
+.placeholder {
+  font-size: 14px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+*::-webkit-scrollbar {
+  width: 4px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* ── Mobile Responsive ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+  
+  .sidebar {
+    display: none;
+  }
+}

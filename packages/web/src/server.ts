@@ -29,7 +29,7 @@ import { readDomainsManifest, type CogDomain } from "../../shared/lib/domains.ts
 import "../../shared/types.ts";
 
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
-import { indexHTML, isCompiledBinary, manifest, serviceWorker, appleTouchIcon } from "./assets.ts";
+import { indexHTML, isCompiledBinary, manifest, serviceWorker, appleTouchIcon, reactIndexHTML, appJs, appCss } from "./assets.ts";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -931,6 +931,57 @@ app.get("/apple-touch-icon.png", async (c) => {
     });
   } catch {
     return c.text("Icon not found", 404);
+  }
+});
+
+// ── React App (Phase 1 Migration) ────────────────────────────────────────────
+
+// Serve React index.html at /react
+app.get("/react", async (c) => {
+  if (isCompiledBinary()) {
+    return c.html(reactIndexHTML);
+  }
+  try {
+    const html = await fs.readFile(path.join(import.meta.dirname, "index.html"), "utf-8");
+    return c.html(html);
+  } catch {
+    return c.text("React frontend not built yet. Run: bun run build:client", 200);
+  }
+});
+
+// Serve React bundled JS
+app.get("/app.js", async (c) => {
+  if (isCompiledBinary()) {
+    return new Response(appJs, {
+      headers: { "Content-Type": "application/javascript" },
+    });
+  }
+  try {
+    const file = path.join(import.meta.dirname, "..", "dist", "app.js");
+    const content = await fs.readFile(file, "utf-8");
+    return new Response(content, {
+      headers: { "Content-Type": "application/javascript" },
+    });
+  } catch {
+    return c.text("app.js not found. Run: bun run build:client", 404);
+  }
+});
+
+// Serve React bundled CSS
+app.get("/app.css", async (c) => {
+  if (isCompiledBinary()) {
+    return new Response(appCss, {
+      headers: { "Content-Type": "text/css" },
+    });
+  }
+  try {
+    const file = path.join(import.meta.dirname, "..", "dist", "app.css");
+    const content = await fs.readFile(file, "utf-8");
+    return new Response(content, {
+      headers: { "Content-Type": "text/css" },
+    });
+  } catch {
+    return c.text("app.css not found. Run: bun run build:client", 404);
   }
 });
 

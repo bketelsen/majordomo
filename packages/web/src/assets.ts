@@ -12,10 +12,21 @@ export function isCompiledBinary(): boolean {
   return import.meta.path.startsWith('/$bunfs/') || import.meta.path.startsWith('/bunfs/');
 }
 
-// Embedded HTML dashboard
+// Embedded HTML dashboard (vanilla JS version - kept for backwards compatibility)
 // @ts-ignore — bun 'with { type: text }' imports not supported by tsc
 import indexHTMLRaw from '../static/index.html' with { type: 'text' };
 export const indexHTML: string = indexHTMLRaw as unknown as string;
+
+// React app assets (Phase 1 migration)
+// @ts-ignore
+import reactIndexHTMLRaw from './index.html' with { type: 'text' };
+// @ts-ignore
+import appJsRaw from '../dist/app.js' with { type: 'text' };
+// @ts-ignore
+import appCssRaw from '../dist/app.css' with { type: 'text' };
+export const reactIndexHTML: string = reactIndexHTMLRaw as unknown as string;
+export const appJs: string = appJsRaw as unknown as string;
+export const appCss: string = appCssRaw as unknown as string;
 
 // PWA manifest and service worker
 // @ts-ignore
