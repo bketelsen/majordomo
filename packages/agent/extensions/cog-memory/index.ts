@@ -13,6 +13,11 @@
  *   cog_update_action_item — add / complete / update an action item
  *   cog_glacier_search   — search the glacier index without opening files
  *   cog_wiki_follow      — resolve and read a [[wiki-link]]
+ *   write_obsidian       — write Markdown to Obsidian vault (if OBSIDIAN_VAULT set)
+ *   write_outline        — create or update Outline document (if OUTLINE_TOKEN set)
+ *   read_outline         — read Outline document by title or ID (if OUTLINE_TOKEN set)
+ *   search_outline       — search Outline documents (if OUTLINE_TOKEN set)
+ *   list_outline         — list documents in Outline collection (if OUTLINE_TOKEN set)
  */
 
 import * as path from "node:path";
@@ -22,6 +27,7 @@ import { type ExtensionAPI, type AgentToolResult, withFileMutationQueue } from "
 import { Type } from "@sinclair/typebox";
 import { createLogger } from "../../lib/logger.ts";
 import { getVaultRoot, writeToVault } from "../../lib/obsidian.ts";
+import * as outline from "../../lib/outline.ts";
 
 const logger = createLogger({ context: { component: "cog-memory" } });
 
@@ -889,6 +895,387 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
         };
       },
     });
+
+    // ── Outline tools ────────────────────────────────────────────────────────
+
+    // Only register if OUTLINE_TOKEN is set
+    if (outline.OUTLINE_TOKEN) {
+      // ── write_outline ──────────────────────────────────────────────────────
+
+      pi.registerTool({
+        name: "write_outline",
+        label: "Write to Outline",
+        description:
+          "Create or update a document in Outline wiki. " +
+          "If a document with the same title exists in the collection, it will be updated. " +
+          "Otherwise a new document is created. Returns the document URL.",
+        promptSnippet: "Write a document to Outline wiki",
+        parameters: Type.Object({
+          title: Type.String({
+            description: "Document title",
+          }),
+          content: Type.String({
+            description: "Markdown content of the document",
+          }),
+          collection: Type.Optional(
+            Type.String({
+              description: "Collection name (defaults to 'Majordomo'). Will be created if it doesn't exist.",
+            })
+          ),
+          parent_title: Type.Optional(
+            Type.String({
+              description: "Parent document title (for nested documents). Must exist in the collection.",
+            })
+          ),
+        }),
+        async execute(_id, params): Promise<AgentToolResult<Record<string, unknown>>> {
+          try {
+            const collectionName = params.collection ?? "Majordomo";
+
+            // Get or create collection
+            const collection = await outline.getOrCreateCollection(
+              collectionName,
+              `Documents created by Majordomo agent`
+            );
+
+            // Find parent document if specified
+            let parentDocId: string | undefined;
+            if (params.parent_title) {
+              const docs = await outline.getDocuments(collection.id);
+              const parent = docs.find(d => d.title === params.parent_title);
+              if (!parent) {
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: `❌  Parent document '${params.parent_title}' not found in collection '${collectionName}'`,
+                    },
+                  ],
+                  details: { error: "parent_not_found" },
+                };
+              }
+              parentDocId = parent.id;
+            }
+
+            // Check if document already exists
+            const existingDocs = await outline.getDocuments(collection.id);
+            const existing = existingDocs.find(d => d.title === params.title);
+
+            let doc: outline.OutlineDocument;
+            if (existing) {
+              // Update existing document
+              doc = await outline.updateDocument(existing.id, {
+                text: params.content,
+                publish: true,
+              });
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `✓  Updated document in Outline: ${doc.title}\n${doc.url}`,
+                  },
+                ],
+                details: { url: doc.url, id: doc.id, action: "updated" },
+              };
+            } else {
+              // Create new document
+              doc = await outline.createDocument({
+                title: params.title,
+                text: params.content,
+                collectionId: collection.id,
+                parentDocumentId: parentDocId,
+                publish: true,
+              });
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `✓  Created document in Outline: ${doc.title}\n${doc.url}`,
+                  },
+                ],
+                details: { url: doc.url, id: doc.id, action: "created" },
+              };
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `✗  Failed to write to Outline: ${message}`,
+                },
+              ],
+              details: { error: message },
+            };
+          }
+        },
+      });
+
+      // ── read_outline ───────────────────────────────────────────────────────
+
+      pi.registerTool({
+        name: "read_outline",
+        label: "Read from Outline",
+        description:
+          "Read a document from Outline wiki by title or ID. " +
+          "Returns the document title and markdown content.",
+        promptSnippet: "Read a document from Outline wiki",
+        parameters: Type.Object({
+          title: Type.Optional(
+            Type.String({
+              description: "Document title to search for",
+            })
+          ),
+          id: Type.Optional(
+            Type.String({
+              description: "Document ID (if known). Faster than title search.",
+            })
+          ),
+          collection: Type.Optional(
+            Type.String({
+              description: "Collection name to search in (required if using title, optional if using id)",
+            })
+          ),
+        }),
+        async execute(_id, params): Promise<AgentToolResult<Record<string, unknown>>> {
+          try {
+            // Require either title or id
+            if (!params.title && !params.id) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: "❌  Must provide either 'title' or 'id' parameter",
+                  },
+                ],
+                details: { error: "missing_parameter" },
+              };
+            }
+
+            let doc: outline.OutlineDocument;
+
+            if (params.id) {
+              // Direct fetch by ID
+              doc = await outline.getDocument(params.id);
+            } else {
+              // Search by title
+              if (!params.collection) {
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: "❌  'collection' parameter required when searching by title",
+                    },
+                  ],
+                  details: { error: "missing_collection" },
+                };
+              }
+
+              const collections = await outline.getCollections();
+              const collection = collections.find(c => c.name === params.collection);
+              if (!collection) {
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: `❌  Collection '${params.collection}' not found`,
+                    },
+                  ],
+                  details: { error: "collection_not_found" },
+                };
+              }
+
+              const docs = await outline.getDocuments(collection.id);
+              const found = docs.find(d => d.title === params.title);
+              if (!found) {
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: `❌  Document '${params.title}' not found in collection '${params.collection}'`,
+                    },
+                  ],
+                  details: { error: "document_not_found" },
+                };
+              }
+              doc = found;
+            }
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `# ${doc.title}\n\n${doc.text}`,
+                },
+              ],
+              details: {
+                id: doc.id,
+                title: doc.title,
+                url: doc.url,
+                updatedAt: doc.updatedAt,
+              },
+            };
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `✗  Failed to read from Outline: ${message}`,
+                },
+              ],
+              details: { error: message },
+            };
+          }
+        },
+      });
+
+      // ── search_outline ─────────────────────────────────────────────────────
+
+      pi.registerTool({
+        name: "search_outline",
+        label: "Search Outline",
+        description:
+          "Search for documents in Outline wiki. " +
+          "Returns a list of matching documents with title, URL, and content snippet.",
+        promptSnippet: "Search Outline wiki",
+        parameters: Type.Object({
+          query: Type.String({
+            description: "Search query",
+          }),
+        }),
+        async execute(_id, params): Promise<AgentToolResult<Record<string, unknown>>> {
+          try {
+            const results = await outline.searchDocuments(params.query);
+
+            if (results.length === 0) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `No documents found matching: ${params.query}`,
+                  },
+                ],
+                details: { query: params.query, count: 0 },
+              };
+            }
+
+            const text = results
+              .map((doc, i) => {
+                const snippet = doc.text.slice(0, 200).replace(/\n/g, " ");
+                return `${i + 1}. **${doc.title}**\n   ${doc.url}\n   ${snippet}${doc.text.length > 200 ? "..." : ""}`;
+              })
+              .join("\n\n");
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Found ${results.length} document(s):\n\n${text}`,
+                },
+              ],
+              details: {
+                query: params.query,
+                count: results.length,
+                results: results.map(d => ({ id: d.id, title: d.title, url: d.url })),
+              },
+            };
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `✗  Failed to search Outline: ${message}`,
+                },
+              ],
+              details: { error: message },
+            };
+          }
+        },
+      });
+
+      // ── list_outline ───────────────────────────────────────────────────────
+
+      pi.registerTool({
+        name: "list_outline",
+        label: "List Outline Documents",
+        description:
+          "List all documents in an Outline collection. " +
+          "Returns document titles and URLs.",
+        promptSnippet: "List documents in Outline collection",
+        parameters: Type.Object({
+          collection: Type.Optional(
+            Type.String({
+              description: "Collection name (defaults to 'Majordomo')",
+            })
+          ),
+        }),
+        async execute(_id, params): Promise<AgentToolResult<Record<string, unknown>>> {
+          try {
+            const collectionName = params.collection ?? "Majordomo";
+
+            const collections = await outline.getCollections();
+            const collection = collections.find(c => c.name === collectionName);
+
+            if (!collection) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Collection '${collectionName}' not found. Available collections: ${collections.map(c => c.name).join(", ") || "(none)"}`,
+                  },
+                ],
+                details: { error: "collection_not_found" },
+              };
+            }
+
+            const docs = await outline.getDocuments(collection.id);
+
+            if (docs.length === 0) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Collection '${collectionName}' is empty`,
+                  },
+                ],
+                details: { collection: collectionName, count: 0 },
+              };
+            }
+
+            const text = docs
+              .map((doc, i) => `${i + 1}. **${doc.title}**\n   ${doc.url}`)
+              .join("\n\n");
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Documents in '${collectionName}' (${docs.length}):\n\n${text}`,
+                },
+              ],
+              details: {
+                collection: collectionName,
+                count: docs.length,
+                documents: docs.map(d => ({ id: d.id, title: d.title, url: d.url })),
+              },
+            };
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `✗  Failed to list Outline documents: ${message}`,
+                },
+              ],
+              details: { error: message },
+            };
+          }
+        },
+      });
+    }
   };
 }
 
