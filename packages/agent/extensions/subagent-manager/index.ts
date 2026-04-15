@@ -51,6 +51,14 @@ interface AgentDefinition {
   systemPrompt: string; // from the markdown body
 }
 
+interface WorkflowStep {
+  id: string;
+  agent: string;
+  depends_on?: string;
+  iterate_over?: string;
+  input: Record<string, string>;
+}
+
 interface RunRecord {
   id: string;
   agent: string;
@@ -332,6 +340,71 @@ async function spawnAgent(
   });
 }
 
+// ── Template resolution helper ────────────────────────────────────────────────
+
+function resolveTemplate(
+  template: string,
+  workflowInput: Record<string, unknown>,
+  stepOutputs: Record<string, unknown>,
+  currentItem: unknown
+): string {
+  let resolved = template;
+
+  // {{workflow.input.key}}
+  resolved = resolved.replace(/\{\{workflow\.input\.(\w+)\}\}/g, (_: string, k: string) =>
+    String(workflowInput[k] ?? ""));
+
+  // {{steps.id.output.field}}
+  resolved = resolved.replace(/\{\{steps\.(\w+)\.output\.(\w+)\}\}/g, (_: string, stepId: string, field: string) => {
+    const raw = stepOutputs[stepId];
+    if (raw === undefined || raw === null) return "";
+    
+    // If it's already an object, access the field directly
+    if (typeof raw === 'object' && field in raw) {
+      return String((raw as Record<string, unknown>)[field] ?? "");
+    }
+    
+    // Otherwise try to parse as JSON
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return String(parsed[field] ?? "");
+      } catch {
+        return String(raw); // fallback: whole output
+      }
+    }
+    
+    return String(raw);
+  });
+
+  // {{steps.id.output}}
+  resolved = resolved.replace(/\{\{steps\.(\w+)\.output\}\}/g, (_: string, stepId: string) => {
+    const raw = stepOutputs[stepId];
+    if (raw === undefined || raw === null) return "";
+    if (typeof raw === 'string') return raw;
+    return JSON.stringify(raw);
+  });
+
+  // {{item.field}} and {{item}} (only if currentItem is provided)
+  if (currentItem !== null) {
+    // {{item.field}}
+    resolved = resolved.replace(/\{\{item\.(\w+)\}\}/g, (_: string, field: string) => {
+      if (typeof currentItem === 'object' && currentItem !== null && field in currentItem) {
+        return String((currentItem as Record<string, unknown>)[field] ?? "");
+      }
+      return "";
+    });
+
+    // {{item}}
+    resolved = resolved.replace(/\{\{item\}\}/g, () => {
+      if (typeof currentItem === 'string') return currentItem;
+      return JSON.stringify(currentItem);
+    });
+  }
+
+  return resolved;
+}
+
 // ── Extension factory ─────────────────────────────────────────────────────────
 
 export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
@@ -577,7 +650,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
       async execute(_id, params, signal): Promise<AgentToolResult<Record<string, unknown>>> {
         const workflowFile = path.join(workflowsDir, `${params.workflow}.yaml`);
 
-        let workflowDef: { name: string; steps: Array<{ id: string; agent: string; input: Record<string, string>; depends_on?: string }> };
+        let workflowDef: { name: string; steps: WorkflowStep[] };
         try {
           const content = await fs.readFile(workflowFile, "utf-8");
           workflowDef = yaml.load(content) as typeof workflowDef;
@@ -592,33 +665,11 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
 
         // Execute workflow asynchronously
         (async () => {
-          const stepOutputs: Record<string, string> = {};
+          const stepOutputs: Record<string, unknown> = {};
           const workflowInput = params.input as Record<string, unknown>;
 
           for (const step of workflowDef.steps) {
             if (signal?.aborted) break;
-
-            // Resolve template expressions:
-            //   {{workflow.input.key}}          — workflow input field
-            //   {{steps.id.output}}             — full step output text
-            //   {{steps.id.output.field}}        — field from JSON-parsed step output
-            const resolvedInput: Record<string, unknown> = {};
-            for (const [key, tmpl] of Object.entries(step.input)) {
-              resolvedInput[key] = tmpl
-                .replace(/\{\{workflow\.input\.(\w+)\}\}/g, (_: string, k: string) =>
-                  String(workflowInput[k] ?? ""))
-                .replace(/\{\{steps\.(\w+)\.output\.(\w+)\}\}/g, (_: string, stepId: string, field: string) => {
-                  const raw = stepOutputs[stepId] ?? "";
-                  try {
-                    const parsed = JSON.parse(raw);
-                    return String(parsed[field] ?? "");
-                  } catch {
-                    return raw; // fallback: whole output
-                  }
-                })
-                .replace(/\{\{steps\.(\w+)\.output\}\}/g, (_: string, stepId: string) =>
-                  stepOutputs[stepId] ?? "");
-            }
 
             const agentDef = agentRegistry.find(a => a.name === step.agent);
             if (!agentDef) {
@@ -629,32 +680,161 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
               return;
             }
 
-            pi.sendUserMessage(
-              `⚡ Workflow **${params.workflow}** — step **${step.id}** (${step.agent}) starting…`,
-              { deliverAs: "followUp" }
-            );
-
-            const result = await spawnAgent(agentDef, resolvedInput, domainWorkingDir, signal);
-
-            if (result.exitCode !== 0) {
-              pi.sendUserMessage(
-                `❌ Workflow **${params.workflow}** stopped at step **${step.id}**: ${result.stderr.slice(0, 200)}`,
-                { deliverAs: "followUp" }
-              );
-              return;
+            // Check if this step has iterate_over
+            let iterationArray: unknown[] = [];
+            if (step.iterate_over) {
+              // Resolve the iterate_over expression to get an array
+              const iterateExpr = step.iterate_over;
+              const resolved = resolveTemplate(iterateExpr, workflowInput, stepOutputs, null);
+              
+              // Try to parse as JSON array if it's a string
+              try {
+                iterationArray = typeof resolved === 'string' ? JSON.parse(resolved) : resolved;
+                if (!Array.isArray(iterationArray)) {
+                  pi.sendUserMessage(
+                    `❌ Workflow **${params.workflow}** step **${step.id}**: iterate_over did not resolve to an array`,
+                    { deliverAs: "followUp" }
+                  );
+                  return;
+                }
+              } catch {
+                pi.sendUserMessage(
+                  `❌ Workflow **${params.workflow}** step **${step.id}**: failed to parse iterate_over result as array`,
+                  { deliverAs: "followUp" }
+                );
+                return;
+              }
             }
 
-            stepOutputs[step.id] = result.output;
-            pi.events.emit("workflow:step_complete", {
-              workflowId,
-              stepId: step.id,
-              agent: step.agent,
-              output: result.output,
-            });
+            // If iterate_over is set, run the agent for each item
+            if (step.iterate_over && iterationArray.length > 0) {
+              pi.sendUserMessage(
+                `⚡ Workflow **${params.workflow}** — step **${step.id}** (${step.agent}) iterating over ${iterationArray.length} items…`,
+                { deliverAs: "followUp" }
+              );
+
+              const outputs: unknown[] = [];
+              let successCount = 0;
+              let skipCount = 0;
+
+              for (let i = 0; i < iterationArray.length; i++) {
+                if (signal?.aborted) break;
+
+                const item = iterationArray[i];
+                const itemNumber = i + 1;
+
+                // Resolve input with {{item}} and {{item.field}} support
+                const resolvedInput: Record<string, unknown> = {};
+                for (const [key, tmpl] of Object.entries(step.input)) {
+                  resolvedInput[key] = resolveTemplate(tmpl, workflowInput, stepOutputs, item);
+                }
+
+                pi.sendUserMessage(
+                  `  ⚡ Item ${itemNumber}/${iterationArray.length}: ${typeof item === 'object' && item !== null && 'title' in item ? (item as { title: string }).title : 'running'}…`,
+                  { deliverAs: "followUp" }
+                );
+
+                try {
+                  const result = await spawnAgent(agentDef, resolvedInput, domainWorkingDir, signal);
+
+                  if (result.exitCode === 0) {
+                    outputs.push(result.output);
+                    successCount++;
+                    pi.sendUserMessage(
+                      `  ✅ Item ${itemNumber}/${iterationArray.length} completed`,
+                      { deliverAs: "followUp" }
+                    );
+                  } else {
+                    // If retry is 0, skip this item and continue
+                    const retryCount = agentDef.on_failure?.retry ?? 0;
+                    if (retryCount === 0) {
+                      skipCount++;
+                      pi.sendUserMessage(
+                        `  ⚠️  Item ${itemNumber}/${iterationArray.length} failed, skipping: ${result.stderr.slice(0, 100)}`,
+                        { deliverAs: "followUp" }
+                      );
+                    } else {
+                      // Abort the whole workflow if retry is configured
+                      pi.sendUserMessage(
+                        `❌ Workflow **${params.workflow}** stopped at step **${step.id}** item ${itemNumber}: ${result.stderr.slice(0, 200)}`,
+                        { deliverAs: "followUp" }
+                      );
+                      return;
+                    }
+                  }
+                } catch (err) {
+                  const retryCount = agentDef.on_failure?.retry ?? 0;
+                  if (retryCount === 0) {
+                    skipCount++;
+                    pi.sendUserMessage(
+                      `  ⚠️  Item ${itemNumber}/${iterationArray.length} failed, skipping: ${String(err).slice(0, 100)}`,
+                      { deliverAs: "followUp" }
+                    );
+                  } else {
+                    pi.sendUserMessage(
+                      `❌ Workflow **${params.workflow}** stopped at step **${step.id}** item ${itemNumber}: ${String(err).slice(0, 200)}`,
+                      { deliverAs: "followUp" }
+                    );
+                    return;
+                  }
+                }
+              }
+
+              stepOutputs[step.id] = outputs;
+              pi.sendUserMessage(
+                `✅ Step **${step.id}** complete: ${successCount} succeeded${skipCount > 0 ? `, ${skipCount} skipped` : ''}`,
+                { deliverAs: "followUp" }
+              );
+              pi.events.emit("workflow:step_complete", {
+                workflowId,
+                stepId: step.id,
+                agent: step.agent,
+                output: outputs,
+              });
+            } else {
+              // Normal single execution (no iteration)
+              // Resolve template expressions:
+              //   {{workflow.input.key}}          — workflow input field
+              //   {{steps.id.output}}             — full step output text
+              //   {{steps.id.output.field}}        — field from JSON-parsed step output
+              const resolvedInput: Record<string, unknown> = {};
+              for (const [key, tmpl] of Object.entries(step.input)) {
+                resolvedInput[key] = resolveTemplate(tmpl, workflowInput, stepOutputs, null);
+              }
+
+              pi.sendUserMessage(
+                `⚡ Workflow **${params.workflow}** — step **${step.id}** (${step.agent}) starting…`,
+                { deliverAs: "followUp" }
+              );
+
+              const result = await spawnAgent(agentDef, resolvedInput, domainWorkingDir, signal);
+
+              if (result.exitCode !== 0) {
+                pi.sendUserMessage(
+                  `❌ Workflow **${params.workflow}** stopped at step **${step.id}**: ${result.stderr.slice(0, 200)}`,
+                  { deliverAs: "followUp" }
+                );
+                return;
+              }
+
+              stepOutputs[step.id] = result.output;
+              pi.events.emit("workflow:step_complete", {
+                workflowId,
+                stepId: step.id,
+                agent: step.agent,
+                output: result.output,
+              });
+            }
           }
 
+          const lastStep = workflowDef.steps[workflowDef.steps.length - 1];
+          const lastOutput = stepOutputs[lastStep.id];
+          const outputText = Array.isArray(lastOutput) 
+            ? `${lastOutput.length} items completed` 
+            : String(lastOutput ?? "(no output)");
+
           pi.sendUserMessage(
-            `✅ Workflow **${params.workflow}** complete!\n\nFinal output:\n${stepOutputs[workflowDef.steps[workflowDef.steps.length - 1].id] ?? "(no output)"}`,
+            `✅ Workflow **${params.workflow}** complete!\n\nFinal output:\n${outputText}`,
             { deliverAs: "followUp" }
           );
         })();

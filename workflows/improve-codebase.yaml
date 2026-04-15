@@ -1,5 +1,5 @@
 name: improve-codebase
-description: Identify improvements in a codebase and implement the top ones
+description: Identify improvements in a codebase and implement the high-priority ones
 
 steps:
   - id: identify
@@ -12,5 +12,22 @@ steps:
   - id: implement
     agent: developer
     depends_on: identify
+    iterate_over: "{{steps.identify.output.improvements}}"
     input:
-      task: "Implement the following code improvements in the repository. Make the actual code changes — do not write documentation or plans. For each improvement: read the relevant files, make the changes, verify with bun x tsc --noEmit if TypeScript. Commit each improvement separately with a descriptive message. Here are the improvements to implement:\n\n{{steps.identify.output}}"
+      task: |
+        Make the following code change in /home/bjk/projects/sionapi.
+        
+        IMPORTANT: This is a code change task, not a planning task.
+        Use edit/write/bash tools to implement the change directly.
+        Do NOT write documentation or plans.
+        Verify with: cd packages/agent && bun x tsc --noEmit
+        Commit when done with message: "{{item.title}}"
+        
+        Title: {{item.title}}
+        Category: {{item.category}}
+        Priority: {{item.priority}}
+        
+        {{item.body}}
+
+on_complete:
+  notify: true
