@@ -318,6 +318,11 @@ async function readDomains(): Promise<CogDomain[]> {
   return manifest.domains.filter(d => d.status !== "archived");
 }
 
+// Validate domain ID format to prevent path traversal
+function isValidDomainId(id: string): boolean {
+  return /^[a-z0-9/_-]+$/.test(id) && !id.includes('..');
+}
+
 // ── Plugin registry ───────────────────────────────────────────────────────────
 
 let loadedPlugins: LoadedPlugin[] = [];
@@ -404,7 +409,11 @@ app.post("/api/domains/:id/activate", async (c) => {
 app.get("/api/messages/:domain", async (c) => {
   const domain = c.req.param("domain");
   
-  // Validate domain exists in manifest to prevent path traversal
+  // Validate domain ID format and existence to prevent path traversal
+  if (!isValidDomainId(domain)) {
+    return c.json({ error: "Invalid domain ID format" }, 400);
+  }
+  
   const validDomains = await readDomains();
   if (!validDomains.some(d => d.id === domain)) {
     return c.json({ error: "Domain not found" }, 404);
@@ -421,7 +430,11 @@ app.get("/api/messages/:domain", async (c) => {
 app.post("/api/messages/:domain", async (c) => {
   const domain = c.req.param("domain");
   
-  // Validate domain exists in manifest to prevent path traversal
+  // Validate domain ID format and existence to prevent path traversal
+  if (!isValidDomainId(domain)) {
+    return c.json({ error: "Invalid domain ID format" }, 400);
+  }
+  
   const validDomains = await readDomains();
   if (!validDomains.some(d => d.id === domain)) {
     return c.json({ error: "Domain not found" }, 404);

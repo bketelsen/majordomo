@@ -193,10 +193,10 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
         })),
       }),
       async execute(_id, params): Promise<AgentToolResult<Record<string, unknown>>> {
-        // Validate ID format
-        if (!/^[a-z0-9/_-]+$/.test(params.id)) {
+        // Validate ID format and prevent path traversal
+        if (!/^[a-z0-9/_-]+$/.test(params.id) || params.id.includes('..')) {
           return {
-            content: [{ type: "text", text: "❌  Domain ID must be lowercase letters, numbers, hyphens, underscores, or slashes only" }],
+            content: [{ type: "text", text: "❌  Domain ID must be lowercase letters, numbers, hyphens, underscores, or slashes only (path traversal not allowed)" }],
             details: {},
           };
         }
