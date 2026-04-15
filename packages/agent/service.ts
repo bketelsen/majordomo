@@ -18,7 +18,7 @@ import { serve } from "@hono/node-server";
 import { DomainContextManager, sharedEventBus } from "./lib/domain-context-manager.ts";
 import { TelegramBot } from "./lib/telegram-bot.ts";
 import { runPersonaWizardIfNeeded } from "./lib/persona-wizard.ts";
-import { app as webApp, PORT as WEB_PORT, webEvents } from "../web/src/server.ts";
+import { app as webApp, PORT as WEB_PORT, webEvents, initializePlugins } from "../web/src/server.ts";
 import { isCompiledBinary, defaultAgents, defaultWorkflows, personaContent } from "../web/src/assets.ts";
 import { createLogger } from "./lib/logger.ts";
 import "../shared/types.ts";
@@ -168,6 +168,10 @@ sharedEventBus.on("workflow:step_failed", (data: unknown) => webEvents.emit("wor
 sharedEventBus.on("workflow:complete", (data: unknown) => webEvents.emit("workflow:complete", data));
 
 // ── Web server (in-process) ───────────────────────────────────────────────────
+
+// Initialize plugins BEFORE starting server to prevent race condition
+// where widget requests arrive before plugins finish loading
+await initializePlugins();
 
 serve({ fetch: webApp.fetch, port: WEB_PORT }, (info) => {
   logger.info("Dashboard listening", { url: `http://localhost:${info.port}` });

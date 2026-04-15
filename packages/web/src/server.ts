@@ -505,6 +505,7 @@ function isValidDomainId(id: string): boolean {
 // ── Plugin registry ───────────────────────────────────────────────────────────
 
 let loadedPlugins: LoadedPlugin[] = [];
+let pluginsLoaded = false;
 
 // ── Widget data ────────────────────────────────────────────────────────────────
 
@@ -552,9 +553,19 @@ async function getWidgetData(name: string): Promise<unknown> {
 
 const app = new Hono();
 
-// Load and register plugins at startup
-loadedPlugins = await loadPlugins(PLUGIN_DIR);
-registerPlugins(app, loadedPlugins, { dataRoot: DATA_ROOT, webEvents });
+/**
+ * Initialize plugins — MUST be called before server starts accepting requests
+ * to prevent race condition where widgets return 404 before plugins load.
+ */
+async function initializePlugins(): Promise<void> {
+  if (pluginsLoaded) return; // Already initialized
+  
+  console.log('[web] Loading plugins...');
+  loadedPlugins = await loadPlugins(PLUGIN_DIR);
+  registerPlugins(app, loadedPlugins, { dataRoot: DATA_ROOT, webEvents });
+  pluginsLoaded = true;
+  console.log(`[web] ✓ Plugins loaded (${loadedPlugins.length} total)`);
+}
 
 // Health
 app.get("/health", (c) => c.json({ status: "ok", ts: Date.now() }));
@@ -945,11 +956,12 @@ app.get("*", async (c) => {
 
 // ── Export for in-process use from service.ts ─────────────────────────────────
 
-export { app, PORT };
+export { app, PORT, initializePlugins };
 
 // ── Standalone entry (bun packages/web/src/server.ts) ────────────────────────
 
 if (import.meta.main) {
+  await initializePlugins();
   serve({ fetch: app.fetch, port: PORT }, (info) => {
     console.log(`🌐  Majordomo Web listening on http://localhost:${info.port}`);
   });

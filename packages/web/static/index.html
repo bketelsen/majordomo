@@ -1051,20 +1051,35 @@ function connectSSE() {
 
 async function loadWidget(name) {
   const res = await fetch(`/api/widgets/${name}`).catch(() => null);
+  
+  // Retry once on 404 (handles race condition during server startup)
+  if (res?.status === 404) {
+    console.log(`[widgets] Got 404 for ${name}, retrying in 1 second...`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    const retryRes = await fetch(`/api/widgets/${name}`).catch(() => null);
+    if (!retryRes?.ok) return;
+    const retryData = await retryRes.json();
+    renderWidgetData(name, retryData.data);
+    return;
+  }
+  
   if (!res?.ok) return;
   const data = await res.json();
+  renderWidgetData(name, data.data);
+}
 
+function renderWidgetData(name, data) {
   // Check if this is a plugin-based widget
   const plugin = pluginRegistry.get(name);
   if (plugin && plugin.renderer) {
-    renderPluginWidget(name, plugin, data.data);
+    renderPluginWidget(name, plugin, data);
   } else {
     // Fallback to legacy rendering
-    if (name === 'priorities') renderPrioritiesWidget(data.data);
-    if (name === 'containers') renderContainersWidget(data.data);
-    if (name === 'subagents')  renderSubagentsWidget(data.data);
-    if (name === 'schedules')  renderSchedulesWidget(data.data);
-    if (name === 'email')      renderEmailWidget(data.data);
+    if (name === 'priorities') renderPrioritiesWidget(data);
+    if (name === 'containers') renderContainersWidget(data);
+    if (name === 'subagents')  renderSubagentsWidget(data);
+    if (name === 'schedules')  renderSchedulesWidget(data);
+    if (name === 'email')      renderEmailWidget(data);
   }
 }
 
