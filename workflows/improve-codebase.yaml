@@ -1,0 +1,16 @@
+name: improve-codebase
+description: Identify improvements in a codebase and implement the top ones
+
+steps:
+  - id: identify
+    agent: improver
+    input:
+      repo_path: "{{workflow.input.repo_path}}"
+      focus: "{{workflow.input.focus}}"
+      context: "{{workflow.input.context}}"
+
+  - id: implement
+    agent: developer
+    depends_on: identify
+    input:
+      task: "{{steps.identify.output}}"
