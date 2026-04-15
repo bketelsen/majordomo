@@ -32,6 +32,8 @@ interface TelegramMap {
 
 const MAX_MESSAGE_LENGTH = 4096;
 const TYPING_REFRESH_MS = 4000;
+const MAX_RETRY_ATTEMPTS = 3;
+const INITIAL_RETRY_DELAY_MS = 1000;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -193,19 +195,97 @@ export class TelegramBot {
   // ── Sending helpers ─────────────────────────────────────────────────────────
 
   private async reply(ctx: Context, text: string): Promise<void> {
+    const chatId = ctx.chat!.id;
+    let lastError: Error | unknown;
+
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        await ctx.reply(text);
+        return; // Success
+      } catch (err) {
+        lastError = err;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[telegram] Failed to reply (attempt ${attempt}/${MAX_RETRY_ATTEMPTS}):`, errorMsg);
+
+        if (attempt < MAX_RETRY_ATTEMPTS && this.isRetriableError(err)) {
+          const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+          console.log(`[telegram] Retrying in ${delay}ms...`);
+          await this.sleep(delay);
+        }
+      }
+    }
+
+    // All retries exhausted - send fallback notification
+    const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+    console.error(`[telegram] Message delivery failed after ${MAX_RETRY_ATTEMPTS} attempts:`, errorMsg);
+    
+    // Try to send a fallback error message (no retry to avoid infinite loop)
     try {
-      await ctx.reply(text);
-    } catch (err) {
-      console.error("[telegram] Failed to reply:", err);
+      await this.bot.api.sendMessage(
+        chatId,
+        "⚠️ System error: Unable to deliver response. Please try again later."
+      );
+    } catch (fallbackErr) {
+      console.error("[telegram] Failed to send fallback error message:", fallbackErr);
     }
   }
 
   private async sendChunks(chatId: number, text: string): Promise<void> {
-    try {
-      await this.bot.api.sendMessage(chatId, text);
-    } catch (err) {
-      console.error("[telegram] Failed to send message:", err);
+    let lastError: Error | unknown;
+
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        await this.bot.api.sendMessage(chatId, text);
+        return; // Success
+      } catch (err) {
+        lastError = err;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[telegram] Failed to send message (attempt ${attempt}/${MAX_RETRY_ATTEMPTS}):`, errorMsg);
+
+        if (attempt < MAX_RETRY_ATTEMPTS && this.isRetriableError(err)) {
+          const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+          console.log(`[telegram] Retrying in ${delay}ms...`);
+          await this.sleep(delay);
+        }
+      }
     }
+
+    // All retries exhausted - send fallback notification
+    const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+    console.error(`[telegram] Message delivery failed after ${MAX_RETRY_ATTEMPTS} attempts:`, errorMsg);
+    
+    // Try to send a fallback error message (no retry to avoid infinite loop)
+    try {
+      await this.bot.api.sendMessage(
+        chatId,
+        "⚠️ System error: Unable to deliver response. Please try again later."
+      );
+    } catch (fallbackErr) {
+      console.error("[telegram] Failed to send fallback error message:", fallbackErr);
+    }
+  }
+
+  private isRetriableError(err: unknown): boolean {
+    if (!(err instanceof Error)) return false;
+
+    const message = err.message.toLowerCase();
+    
+    // Network and temporary Telegram API errors that should be retried
+    return (
+      message.includes('timeout') ||
+      message.includes('network') ||
+      message.includes('econnrefused') ||
+      message.includes('econnreset') ||
+      message.includes('too many requests') ||
+      message.includes('retry after') ||
+      message.includes('internal server error') ||
+      message.includes('bad gateway') ||
+      message.includes('service unavailable')
+    );
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   // ── telegram-map.yaml I/O ───────────────────────────────────────────────────
