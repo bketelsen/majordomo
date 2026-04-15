@@ -18,7 +18,7 @@ import { serve } from "@hono/node-server";
 import { DomainContextManager, sharedEventBus } from "./lib/domain-context-manager.ts";
 import { TelegramBot } from "./lib/telegram-bot.ts";
 import { runPersonaWizardIfNeeded } from "./lib/persona-wizard.ts";
-import { app as webApp, PORT as WEB_PORT, webEvents, initializePlugins } from "../web/src/server.ts";
+import { app as webApp, PORT as WEB_PORT, webEvents, initializePlugins, websocketHandler } from "../web/src/server.ts";
 import { isCompiledBinary, defaultAgents, defaultWorkflows, personaContent } from "../web/src/assets.ts";
 import { createLogger } from "./lib/logger.ts";
 import "../shared/types.ts";
@@ -173,9 +173,21 @@ sharedEventBus.on("workflow:complete", (data: unknown) => webEvents.emit("workfl
 // where widget requests arrive before plugins finish loading
 await initializePlugins();
 
-serve({ fetch: webApp.fetch, port: WEB_PORT }, (info) => {
-  logger.info("Dashboard listening", { url: `http://localhost:${info.port}` });
+// Use Bun.serve for native WebSocket support (/term PTY endpoint)
+Bun.serve({
+  port: WEB_PORT,
+  fetch(req, server) {
+    const url = new URL(req.url);
+    if (url.pathname === '/term') {
+      const upgraded = server.upgrade(req);
+      if (upgraded) return undefined;
+      return new Response('WebSocket upgrade failed', { status: 400 });
+    }
+    return webApp.fetch(req);
+  },
+  websocket: websocketHandler,
 });
+logger.info("Dashboard listening", { url: `http://localhost:${WEB_PORT}` });
 
 // ── Telegram bot (optional) ───────────────────────────────────────────────────
 

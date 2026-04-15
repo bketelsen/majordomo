@@ -955,7 +955,7 @@ app.get("*", async (c) => {
 
 // ── Export for in-process use from service.ts ─────────────────────────────────
 
-export { app, PORT, initializePlugins };
+export { app, PORT, initializePlugins, websocketHandler };
 
 // ── WebSocket PTY handler ────────────────────────────────────────────────────
 
