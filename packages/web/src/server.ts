@@ -28,7 +28,7 @@ import { EventEmitter } from "node:events";
 import yaml from "js-yaml";
 import { Database } from "bun:sqlite";
 import { listAllContainers, dockerAction, incusAction } from "./lib/containers.ts";
-import { markPriorityDone } from "./lib/priorities.ts";
+
 import { fetchRecentEmails, markEmailRead } from "./lib/email.ts";
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
 import { indexHTML, isCompiledBinary, manifest, serviceWorker, appleTouchIcon } from "./assets.ts";
@@ -349,7 +349,6 @@ async function getWidgetData(name: string): Promise<unknown> {
 
   // Fallback to legacy widgets
   switch (name) {
-    case "priorities":   return await computePrioritiesWidget();
     case "containers":  return await computeContainersWidget();
     case "subagents":   return await computeSubagentsWidget();
     case "schedules":   return await computeSchedulesWidget();
@@ -367,48 +366,7 @@ async function getWidgetData(name: string): Promise<unknown> {
   }
 }
 
-async function computePrioritiesWidget(): Promise<unknown> {
-  const domains = await readDomains();
-  const priorities: Array<{ domain: string; task: string; priority: string; due?: string }> = [];
 
-  for (const domain of domains) {
-    const filePath = path.join(MEMORY_ROOT, domain.path, "action-items.md");
-    try {
-      const content = await fs.readFile(filePath, "utf-8");
-      const lines = content.split("\n");
-      for (const line of lines) {
-        // Match: - [ ] task | due:YYYY-MM-DD | pri:high | ...
-        if (!line.startsWith("- [ ]")) continue;
-        const taskText = line.slice(5).split(" | ")[0].trim();
-        const priMatch = line.match(/\bpri:(critical|high|med|low)\b/);
-        const dueMatch = line.match(/\bdue:(\d{4}-\d{2}-\d{2})\b/);
-        const priority = priMatch?.[1] ?? "med";
-        if (priority === "critical" || priority === "high") {
-          priorities.push({
-            domain: domain.id,
-            task: taskText,
-            priority,
-            due: dueMatch?.[1],
-          });
-        }
-      }
-    } catch { /* domain may not have action-items */ }
-  }
-
-  // Sort: critical first, then high, then by due date
-  const priorityOrder = { critical: 0, high: 1, med: 2, low: 3 };
-  priorities.sort((a, b) => {
-    const po = (priorityOrder[a.priority as keyof typeof priorityOrder] ?? 2) -
-               (priorityOrder[b.priority as keyof typeof priorityOrder] ?? 2);
-    if (po !== 0) return po;
-    if (a.due && b.due) return a.due.localeCompare(b.due);
-    if (a.due) return -1;
-    if (b.due) return 1;
-    return 0;
-  });
-
-  return { items: priorities, updatedAt: Date.now() };
-}
 
 async function computeContainersWidget(): Promise<unknown> {
   const containers = await listAllContainers();
@@ -621,14 +579,7 @@ app.post("/api/schedules/:id/trigger", async (c) => {
   }
 });
 
-// Mark a priority done (writes back to COG action-items.md)
-app.post("/api/priorities/done", async (c) => {
-  const { domain, task } = await c.req.json();
-  if (!domain || !task) return c.json({ error: "domain and task required" }, 400);
-  const result = await markPriorityDone(MEMORY_ROOT, domain, task);
-  if (!result.ok) return c.json({ error: result.error }, 400);
-  return c.json({ ok: true });
-});
+
 
 // Mark an email as read
 app.post("/api/email/:uid/read", async (c) => {
