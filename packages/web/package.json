@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun src/server.ts",
-    "build": "bun run build:client && bun build src/server.ts --outdir dist",
+    "build": "bun run build:client",
     "build:client": "bun build src/app.tsx --outdir dist/ --minify --sourcemap=none && cp src/index.html dist/index.html",
     "dev:client": "bun build src/app.tsx --outdir dist/ --watch"
   },

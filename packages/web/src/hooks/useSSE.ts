@@ -77,6 +77,9 @@ export function useSSE(activeDomain: string) {
 
         const { event, data } = payload;
 
+        // Guard: some events have no data (e.g. 'connected')
+        if (!data) return;
+
         // Only process events for the active domain (except domain events)
         if (data.domain && data.domain !== activeDomain && !event.startsWith('domain:')) {
           return;
