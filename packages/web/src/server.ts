@@ -28,7 +28,7 @@ import { EventEmitter } from "node:events";
 import yaml from "js-yaml";
 import { Database } from "bun:sqlite";
 import { listAllContainers, dockerAction, incusAction } from "./lib/containers.ts";
-import { markPriorityDone } from "./lib/priorities.ts";
+
 import { fetchRecentEmails, markEmailRead } from "./lib/email.ts";
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
 import { indexHTML, isCompiledBinary, manifest, serviceWorker, appleTouchIcon } from "./assets.ts";
@@ -349,10 +349,7 @@ async function getWidgetData(name: string): Promise<unknown> {
 
   // Fallback to legacy widgets
   switch (name) {
-    case "priorities":   return await computePrioritiesWidget();
     case "containers":  return await computeContainersWidget();
-    case "subagents":   return await computeSubagentsWidget();
-    case "schedules":   return await computeSchedulesWidget();
     case "email":       return await computeEmailWidget();
     default: {
       // Try file cache for unknown widget names
@@ -367,108 +364,16 @@ async function getWidgetData(name: string): Promise<unknown> {
   }
 }
 
-async function computePrioritiesWidget(): Promise<unknown> {
-  const domains = await readDomains();
-  const priorities: Array<{ domain: string; task: string; priority: string; due?: string }> = [];
 
-  for (const domain of domains) {
-    const filePath = path.join(MEMORY_ROOT, domain.path, "action-items.md");
-    try {
-      const content = await fs.readFile(filePath, "utf-8");
-      const lines = content.split("\n");
-      for (const line of lines) {
-        // Match: - [ ] task | due:YYYY-MM-DD | pri:high | ...
-        if (!line.startsWith("- [ ]")) continue;
-        const taskText = line.slice(5).split(" | ")[0].trim();
-        const priMatch = line.match(/\bpri:(critical|high|med|low)\b/);
-        const dueMatch = line.match(/\bdue:(\d{4}-\d{2}-\d{2})\b/);
-        const priority = priMatch?.[1] ?? "med";
-        if (priority === "critical" || priority === "high") {
-          priorities.push({
-            domain: domain.id,
-            task: taskText,
-            priority,
-            due: dueMatch?.[1],
-          });
-        }
-      }
-    } catch { /* domain may not have action-items */ }
-  }
-
-  // Sort: critical first, then high, then by due date
-  const priorityOrder = { critical: 0, high: 1, med: 2, low: 3 };
-  priorities.sort((a, b) => {
-    const po = (priorityOrder[a.priority as keyof typeof priorityOrder] ?? 2) -
-               (priorityOrder[b.priority as keyof typeof priorityOrder] ?? 2);
-    if (po !== 0) return po;
-    if (a.due && b.due) return a.due.localeCompare(b.due);
-    if (a.due) return -1;
-    if (b.due) return 1;
-    return 0;
-  });
-
-  return { items: priorities, updatedAt: Date.now() };
-}
 
 async function computeContainersWidget(): Promise<unknown> {
   const containers = await listAllContainers();
   return { containers, updatedAt: Date.now() };
 }
 
-async function computeSubagentsWidget(): Promise<unknown> {
-  const dbPath = path.join(DATA_ROOT, "subagents.db");
-  try {
-    const db = new Database(dbPath, { readonly: true });
-    const rows = db.prepare(
-      "SELECT * FROM runs ORDER BY started_at DESC LIMIT 50"
-    ).all() as Array<Record<string, unknown>>;
-    db.close();
-    const runs = rows.map(r => ({
-      id: r.id,
-      agent: r.agent,
-      status: r.status,
-      startedAt: r.started_at,
-      finishedAt: r.finished_at ?? null,
-      retries: r.retries,
-      outputPreview: r.output ? String(r.output).slice(0, 200) : null,
-      error: r.error ?? null,
-    }));
-    return { runs, updatedAt: Date.now() };
-  } catch {
-    return { runs: [], updatedAt: Date.now() };
-  }
-}
 
-async function computeSchedulesWidget(): Promise<unknown> {
-  const dbPath = path.join(DATA_ROOT, "scheduler.db");
-  try {
-    const db = new Database(dbPath, { readonly: true });
-    const jobs = db.prepare(`
-      SELECT j.id, j.cron, j.action_type, j.action_data, j.enabled,
-             MAX(r.ran_at) as last_ran, SUM(CASE WHEN r.success=1 THEN 1 ELSE 0 END) as run_count
-      FROM jobs j
-      LEFT JOIN runs r ON j.id = r.job_id
-      GROUP BY j.id
-      ORDER BY j.id
-    `).all() as Array<Record<string, unknown>>;
-    db.close();
-    return {
-      jobs: jobs.map(j => ({
-        id: j.id,
-        cron: j.cron,
-        action: (() => {
-          try { const d = JSON.parse(j.action_data as string); return d.command ?? d.message ?? String(j.action_data); } catch { return String(j.action_data); }
-        })(),
-        enabled: Boolean(j.enabled),
-        lastRan: j.last_ran ?? null,
-        runCount: j.run_count ?? 0,
-      })),
-      updatedAt: Date.now(),
-    };
-  } catch {
-    return { jobs: [], updatedAt: Date.now() };
-  }
-}
+
+
 
 async function computeEmailWidget(): Promise<unknown> {
   const { messages, configured } = await fetchRecentEmails();
@@ -597,38 +502,9 @@ app.post("/api/containers/:runtime/:id/:action", async (c) => {
 });
 
 // Trigger a scheduled job immediately
-app.post("/api/schedules/:id/trigger", async (c) => {
-  const jobId = c.req.param("id");
-  const manager = (globalThis as Record<string, unknown>).__majordomoManager as {
-    switchDomain: (domain: string) => Promise<void>;
-    sendMessage: (t: string) => Promise<string>;
-  } | undefined;
-  if (!manager) return c.json({ error: "Agent not available" }, 503);
-  // Send the job's action as a message to the general session
-  const dbPath = path.join(DATA_ROOT, "scheduler.db");
-  try {
-    const db = new Database(dbPath, { readonly: true });
-    const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId) as Record<string,unknown> | undefined;
-    db.close();
-    if (!job) return c.json({ error: "Job not found" }, 404);
-    const data = JSON.parse(job.action_data as string);
-    const msg = job.action_type === "pi_command" ? data.command : data.message;
-    await manager.switchDomain("general");
-    manager.sendMessage(msg).catch(() => {});
-    return c.json({ triggered: true, job: jobId });
-  } catch (err) {
-    return c.json({ error: String(err) }, 500);
-  }
-});
+// POST /api/schedules/:id/trigger moved to schedules plugin
 
-// Mark a priority done (writes back to COG action-items.md)
-app.post("/api/priorities/done", async (c) => {
-  const { domain, task } = await c.req.json();
-  if (!domain || !task) return c.json({ error: "domain and task required" }, 400);
-  const result = await markPriorityDone(MEMORY_ROOT, domain, task);
-  if (!result.ok) return c.json({ error: result.error }, 400);
-  return c.json({ ok: true });
-});
+
 
 // Mark an email as read
 app.post("/api/email/:uid/read", async (c) => {
@@ -742,7 +618,7 @@ app.get("/sw.js", async (c) => {
 
 app.get("/apple-touch-icon.png", async (c) => {
   if (isCompiledBinary()) {
-    return new Response(appleTouchIcon, {
+    return new Response(appleTouchIcon as unknown as BodyInit, {
       headers: { "Content-Type": "image/png" },
     });
   }

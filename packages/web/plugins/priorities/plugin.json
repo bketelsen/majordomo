@@ -1,0 +1,23 @@
+{
+  "id": "priorities",
+  "version": "1.0.0",
+  "name": "Priorities",
+  "description": "Track critical and high-priority action items from all domains",
+  "icon": "🎯",
+  
+  "author": {
+    "name": "Majordomo Team"
+  },
+  
+  "permissions": {
+    "filesystem": {
+      "read": ["~/.majordomo/memory"],
+      "write": ["~/.majordomo/memory"]
+    }
+  },
+  
+  "server": "./server.ts",
+  "client": "./client.ts",
+  
+  "config": {}
+}
