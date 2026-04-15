@@ -163,6 +163,19 @@ interface CachedMessages {
   fileSize: number;
 }
 
+// ── Corruption tracking ───────────────────────────────────────────────────────
+
+interface CorruptionStats {
+  domain: string;
+  sessionFile: string;
+  corruptedLines: number;
+  lastCorruptionTimestamp?: number;
+  examples: Array<{ lineNumber: number; preview: string; error: string }>;
+}
+
+const corruptionStats = new Map<string, CorruptionStats>();
+const MAX_CORRUPTION_EXAMPLES = 5;
+
 const messageCache = new Map<string, CachedMessages>();
 const CACHE_TTL = 5000; // 5 seconds
 const MAX_CACHE_ENTRIES = 50;
@@ -233,7 +246,15 @@ async function readLinesReverse(filePath: string, maxLines: number): Promise<str
   }
 }
 
-function parseMessageEntry(line: string, domain: string, isUnifiedHistory: boolean, messages: SessionTimelineItem[], toolCallIndex: Map<string, number>): void {
+function parseMessageEntry(
+  line: string, 
+  domain: string, 
+  isUnifiedHistory: boolean, 
+  messages: SessionTimelineItem[], 
+  toolCallIndex: Map<string, number>,
+  lineNumber?: number,
+  sessionFile?: string
+): void {
   try {
     const entry = JSON.parse(line);
 
@@ -358,7 +379,54 @@ function parseMessageEntry(line: string, domain: string, isUnifiedHistory: boole
         resultText,
       });
     }
-  } catch { /* skip malformed lines */ }
+  } catch (error) {
+    // Log corruption and emit metrics
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const preview = line.length > 100 ? line.substring(0, 100) + '...' : line;
+    
+    // Track corruption stats
+    const statsKey = sessionFile || domain;
+    let stats = corruptionStats.get(statsKey);
+    if (!stats) {
+      stats = {
+        domain,
+        sessionFile: sessionFile || 'unknown',
+        corruptedLines: 0,
+        examples: [],
+      };
+      corruptionStats.set(statsKey, stats);
+    }
+    
+    stats.corruptedLines++;
+    stats.lastCorruptionTimestamp = Date.now();
+    
+    // Keep limited examples
+    if (stats.examples.length < MAX_CORRUPTION_EXAMPLES) {
+      stats.examples.push({
+        lineNumber: lineNumber ?? -1,
+        preview,
+        error: errorMessage,
+      });
+    }
+    
+    // Log warning with context
+    console.warn(
+      `[session-corruption] Malformed JSONL line in ${sessionFile || domain}` +
+      (lineNumber ? ` at line ${lineNumber}` : '') +
+      `\n  Error: ${errorMessage}` +
+      `\n  Preview: ${preview}`
+    );
+    
+    // Emit event for monitoring/alerting
+    webEvents.emit('session:corruption_detected', {
+      domain,
+      sessionFile: sessionFile || 'unknown',
+      lineNumber: lineNumber ?? -1,
+      preview,
+      error: errorMessage,
+      timestamp: Date.now(),
+    });
+  }
 }
 
 async function readSessionMessages(domain: string, limit = 100, before?: number): Promise<SessionTimelineItem[]> {
@@ -397,7 +465,8 @@ async function readSessionMessages(domain: string, limit = 100, before?: number)
 
   // Process lines in reverse order (most recent first)
   for (let i = lines.length - 1; i >= 0; i--) {
-    parseMessageEntry(lines[i], domain, isUnifiedHistory, messages, toolCallIndex);
+    const lineNumber = lines.length - i; // Approximate line number from end
+    parseMessageEntry(lines[i], domain, isUnifiedHistory, messages, toolCallIndex, lineNumber, sessionFile);
   }
 
   // Apply before filter and limit
@@ -489,6 +558,60 @@ registerPlugins(app, loadedPlugins, { dataRoot: DATA_ROOT, webEvents });
 
 // Health
 app.get("/health", (c) => c.json({ status: "ok", ts: Date.now() }));
+
+// Session health check — scans for corrupted sessions
+app.get("/api/health/sessions", async (c) => {
+  const stats = Array.from(corruptionStats.values());
+  const totalCorrupted = stats.reduce((sum, s) => sum + s.corruptedLines, 0);
+  
+  // Scan all session files for potential issues
+  const sessionFiles: Array<{ path: string; size: number; accessible: boolean }> = [];
+  
+  try {
+    const unifiedSessionFile = path.join(DATA_ROOT, "sessions", "session.jsonl");
+    const unifiedStats = await fs.stat(unifiedSessionFile).catch(() => null);
+    if (unifiedStats) {
+      sessionFiles.push({
+        path: unifiedSessionFile,
+        size: unifiedStats.size,
+        accessible: true,
+      });
+    }
+  } catch { /* not found */ }
+  
+  // Check legacy per-domain session files
+  try {
+    const sessionsDir = path.join(DATA_ROOT, "sessions");
+    const entries = await fs.readdir(sessionsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const sessionFile = path.join(sessionsDir, entry.name, "session.jsonl");
+        const sessionStats = await fs.stat(sessionFile).catch(() => null);
+        if (sessionStats) {
+          sessionFiles.push({
+            path: sessionFile,
+            size: sessionStats.size,
+            accessible: true,
+          });
+        }
+      }
+    }
+  } catch { /* directory not found */ }
+  
+  return c.json({
+    status: totalCorrupted === 0 ? "healthy" : "degraded",
+    totalCorruptedLines: totalCorrupted,
+    corruptionStats: stats,
+    sessionFiles,
+    timestamp: Date.now(),
+  });
+});
+
+// Reset corruption stats (for testing/recovery)
+app.post("/api/health/sessions/reset", (c) => {
+  corruptionStats.clear();
+  return c.json({ success: true, message: "Corruption stats reset" });
+});
 
 // ── Domains API ───────────────────────────────────────────────────────────────
 
