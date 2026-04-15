@@ -18,7 +18,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import yaml from "js-yaml";
 import { Database } from "bun:sqlite";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
@@ -370,8 +370,20 @@ function getPiCommand(): { cmd: string; args: string[] } {
     }
   }
 
-  // Last resort: hope pi is on PATH
-  return { cmd: "pi", args: [] };
+  // Last resort: check if pi is on PATH
+  try {
+    const result = spawnSync("which", ["pi"], { encoding: "utf8" });
+    if (result.status === 0 && result.stdout.trim()) {
+      return { cmd: "pi", args: [] };
+    }
+  } catch (err) {
+    // which command failed or not available
+  }
+
+  // Pi binary not found anywhere - throw clear error
+  throw new Error(
+    "pi binary not found. Install from github.com/badlogic/pi-mono or set PI_BIN environment variable"
+  );
 }
 
 async function spawnAgent(
