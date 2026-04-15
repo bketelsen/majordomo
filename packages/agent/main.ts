@@ -34,6 +34,8 @@ const PROJECT_ROOT = process.cwd();
 const MEMORY_ROOT = path.join(PROJECT_ROOT, "memory");
 const DATA_ROOT = path.join(PROJECT_ROOT, "data");
 const PERSONA_FILE = path.join(PROJECT_ROOT, "packages", "agent", "persona", "majordomo.md");
+const AGENTS_DIR = path.join(PROJECT_ROOT, "agents");
+const WORKFLOWS_DIR = path.join(PROJECT_ROOT, "workflows");
 
 // ── Args ─────────────────────────────────────────────────────────────────────
 
@@ -92,8 +94,8 @@ const loader = new DefaultResourceLoader({
   extensionFactories: [
     cogMemoryExtensionFactory({ domain, memoryRoot: MEMORY_ROOT }),
     domainManagerExtensionFactory({ domain, memoryRoot: MEMORY_ROOT, dataRoot: DATA_ROOT, projectRoot: PROJECT_ROOT }),
-    subagentManagerExtensionFactory({ projectRoot: PROJECT_ROOT, agentsDir: path.join(PROJECT_ROOT, "agents"), dataRoot: DATA_ROOT, domain, memoryRoot: MEMORY_ROOT }),
-    schedulerExtensionFactory({ projectRoot: PROJECT_ROOT, dataRoot: DATA_ROOT, agentsDir: path.join(PROJECT_ROOT, "agents"), domain }),
+    subagentManagerExtensionFactory({ projectRoot: PROJECT_ROOT, agentsDir: AGENTS_DIR, workflowsDir: WORKFLOWS_DIR, dataRoot: DATA_ROOT, domain, memoryRoot: MEMORY_ROOT }),
+    schedulerExtensionFactory({ projectRoot: PROJECT_ROOT, dataRoot: DATA_ROOT, agentsDir: AGENTS_DIR, workflowsDir: WORKFLOWS_DIR, domain }),
   ],
 });
 await loader.reload();

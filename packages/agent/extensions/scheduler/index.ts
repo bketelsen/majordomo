@@ -30,6 +30,7 @@ export interface SchedulerOptions {
   projectRoot: string;
   dataRoot: string;
   agentsDir: string;
+  workflowsDir?: string;  // for validating workflow jobs
   domain?: string;  // Deprecated: only the 'general' session starts cron ticks
   getDomain?: () => string;  // Dynamic domain accessor
 }
@@ -37,7 +38,7 @@ export interface SchedulerOptions {
 interface ScheduledJob {
   id: string;
   cron: string;
-  action_type: "pi_command" | "agent_prompt" | "webhook";
+  action_type: "pi_command" | "agent_prompt" | "webhook" | "workflow";
   action_data: string; // JSON
   enabled: number;     // 0 or 1
   created_at: string;
@@ -91,7 +92,7 @@ function openDb(dataRoot: string): Database {
 
 export function schedulerExtensionFactory(opts: SchedulerOptions) {
   return (pi: ExtensionAPI) => {
-    const { projectRoot, dataRoot } = opts;
+    const { projectRoot, dataRoot, workflowsDir } = opts;
     // Resolve domain: getDomain accessor takes precedence over static domain
     const getDomain = opts.getDomain ?? (() => opts.domain ?? "general");
     const db = openDb(dataRoot);
@@ -173,6 +174,13 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
         }
       } else if (job.action_type === "agent_prompt") {
         pi.sendUserMessage(data.message, { deliverAs: "followUp" });
+      } else if (job.action_type === "workflow") {
+        // data = { workflow_name: string, inputs: Record<string, unknown> }
+        // Trigger via pi.sendUserMessage to invoke run_workflow tool
+        pi.sendUserMessage(
+          `Please run the workflow '${data.workflow_name}' with these inputs: ${JSON.stringify(data.inputs ?? {})}`,
+          { deliverAs: "followUp" }
+        );
       }
       // "webhook" type is triggered from HTTP, not cron
     };
@@ -192,7 +200,7 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
     pi.registerTool({
       name: "register_schedule",
       label: "Register Schedule",
-      description: "Register a new scheduled job — cron-based or persistent. Returns the job ID.",
+      description: "Register a new scheduled job — cron-based or persistent. action_type: agent_prompt (send message), pi_command (slash command), or workflow (run a named workflow). Returns the job ID.",
       promptSnippet: "Register a cron-scheduled job or recurring reminder",
       parameters: Type.Object({
         id: Type.String({ description: "Unique job ID, e.g. 'morning-brief'" }),
@@ -200,9 +208,12 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
         action_type: Type.Union([
           Type.Literal("agent_prompt"),
           Type.Literal("pi_command"),
+          Type.Literal("workflow"),
         ]),
         message: Type.Optional(Type.String({ description: "Message to send (for agent_prompt)" })),
         command: Type.Optional(Type.String({ description: "Command to run (for pi_command)" })),
+        workflow_name: Type.Optional(Type.String({ description: "Workflow name to run (for workflow action_type)" })),
+        workflow_inputs: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Input params for the workflow" })),
       }),
 
       async execute(_id, params): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -213,9 +224,36 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
           };
         }
 
-        const actionData = params.action_type === "pi_command"
-          ? JSON.stringify({ command: params.command })
-          : JSON.stringify({ message: params.message });
+        // Validate workflow exists if action_type is workflow
+        if (params.action_type === "workflow") {
+          if (!params.workflow_name) {
+            return {
+              content: [{ type: "text", text: "❌ workflow_name is required for workflow action_type" }],
+              details: {},
+            };
+          }
+
+          const resolvedWorkflowsDir = workflowsDir ?? path.join(projectRoot, "workflows");
+          const workflowFile = path.join(resolvedWorkflowsDir, `${params.workflow_name}.yaml`);
+          
+          try {
+            await fs.access(workflowFile);
+          } catch (err) {
+            return {
+              content: [{ type: "text", text: `❌ Workflow '${params.workflow_name}' not found at ${workflowFile}` }],
+              details: {},
+            };
+          }
+        }
+
+        let actionData: string;
+        if (params.action_type === "pi_command") {
+          actionData = JSON.stringify({ command: params.command });
+        } else if (params.action_type === "workflow") {
+          actionData = JSON.stringify({ workflow_name: params.workflow_name, inputs: params.workflow_inputs ?? {} });
+        } else {
+          actionData = JSON.stringify({ message: params.message });
+        }
 
         try {
           db.prepare(`

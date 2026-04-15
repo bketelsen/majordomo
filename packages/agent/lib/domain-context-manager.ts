@@ -119,6 +119,7 @@ export class DomainContextManager {
           projectRoot: this.opts.projectRoot,
           dataRoot: this.opts.dataRoot,
           agentsDir: this.opts.agentsDir,
+          workflowsDir: this.opts.workflowsDir,
         }),
       ],
     });
