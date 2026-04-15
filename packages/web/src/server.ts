@@ -934,9 +934,22 @@ app.get("/apple-touch-icon.png", async (c) => {
   }
 });
 
-// ── React App (Phase 1 Migration) ────────────────────────────────────────────
+// ── React App (Phase 3 Migration — React is now the default UI) ────────────────
 
-// Serve React index.html at /react
+// React is the default UI — serve at root
+app.get("/", async (c) => {
+  if (isCompiledBinary()) {
+    return c.html(reactIndexHTML);
+  }
+  try {
+    const html = await fs.readFile(path.join(import.meta.dirname, "index.html"), "utf-8");
+    return c.html(html);
+  } catch {
+    return c.text("React frontend not built yet. Run: bun run build:client", 200);
+  }
+});
+
+// Legacy /react route for compatibility
 app.get("/react", async (c) => {
   if (isCompiledBinary()) {
     return c.html(reactIndexHTML);
@@ -946,6 +959,19 @@ app.get("/react", async (c) => {
     return c.html(html);
   } catch {
     return c.text("React frontend not built yet. Run: bun run build:client", 200);
+  }
+});
+
+// Legacy vanilla JS UI at /classic
+app.get("/classic", async (c) => {
+  if (isCompiledBinary()) {
+    return c.html(indexHTML);
+  }
+  try {
+    const html = await fs.readFile(path.join(STATIC_ROOT, "index.html"), "utf-8");
+    return c.html(html);
+  } catch {
+    return c.text("Classic UI not found", 404);
   }
 });
 
@@ -985,22 +1011,22 @@ app.get("/app.css", async (c) => {
   }
 });
 
-// Serve static files from packages/web/static/ (built SvelteKit app)
+// Serve static files from packages/web/static/ (for /classic route assets)
 // Only apply when NOT compiled binary (static files aren't on disk when compiled)
 if (!isCompiledBinary()) {
-  app.use("/*", serveStatic({ root: STATIC_ROOT }));
+  app.use("/classic/*", serveStatic({ root: STATIC_ROOT, rewriteRequestPath: (path) => path.replace(/^\/classic/, '') }));
 }
 
-// SPA fallback — serve index.html for all unmatched routes
+// SPA fallback — serve React index.html for all unmatched routes
 app.get("*", async (c) => {
   if (isCompiledBinary()) {
-    return c.html(indexHTML);
+    return c.html(reactIndexHTML);
   }
   try {
-    const html = await fs.readFile(path.join(STATIC_ROOT, "index.html"), "utf-8");
+    const html = await fs.readFile(path.join(import.meta.dirname, "index.html"), "utf-8");
     return c.html(html);
   } catch {
-    return c.text("Majordomo Web — frontend not built yet. Run: bun run build in packages/web", 200);
+    return c.text("Majordomo Web — React frontend not built yet. Run: bun run build:client in packages/web", 200);
   }
 });
 

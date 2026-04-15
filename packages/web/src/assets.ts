@@ -12,12 +12,12 @@ export function isCompiledBinary(): boolean {
   return import.meta.path.startsWith('/$bunfs/') || import.meta.path.startsWith('/bunfs/');
 }
 
-// Embedded HTML dashboard (vanilla JS version - kept for backwards compatibility)
+// Embedded HTML dashboard (vanilla JS version - kept at /classic for backwards compatibility)
 // @ts-ignore — bun 'with { type: text }' imports not supported by tsc
 import indexHTMLRaw from '../static/index.html' with { type: 'text' };
 export const indexHTML: string = indexHTMLRaw as unknown as string;
 
-// React app assets (Phase 1 migration)
+// React app assets (Phase 3 migration - React is now the default UI)
 // @ts-ignore
 import reactIndexHTMLRaw from './index.html' with { type: 'text' };
 // @ts-ignore

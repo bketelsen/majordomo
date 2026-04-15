@@ -1,42 +1,21 @@
 /**
  * Majordomo React App Entry Point
- * Phase 2: Functional chat pane with SSE streaming, tool calls, and domain switching
+ * Phase 3: Complete React UI with widgets, terminal, and full production-ready features
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './app.css';
 import { useDomains } from './hooks/useDomains';
 import { ChatPane } from './components/ChatPane';
-import { DomainTabs } from './components/DomainTabs';
-
-// Atreides Hawk SVG (inline from current UI)
-const AtridesHawkIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 512 512">
-    <g transform="translate(96, 80) scale(4.03)">
-      <path
-        fill="#d97706"
-        d="m 74.412,20.521 -28.357,29.03 v 13.367 l 6.901,-7.065 v -7.477 l 21.456,-21.965 z"
-      />
-      <path
-        fill="#d97706"
-        d="M 0,0 v 13.698 l 34.523,35.343 v 16.79 l 5.165,5.287 5.164,-5.287 v -16.79 L 79.375,13.698 V 0 L 39.688,40.63 Z"
-      />
-      <path
-        fill="#d97706"
-        d="m 4.962,20.521 28.357,29.03 v 13.367 l -6.901,-7.065 v -7.477 L 4.962,26.411 Z"
-      />
-      <path
-        fill="#d97706"
-        d="m 40.069,24.512 -0.381,0.39 -6.83,6.992 6.83,6.992 6.83,-6.992 -3.512,-3.596 2.44,-2.498 0.743,0.76 v -2.048 z"
-      />
-    </g>
-  </svg>
-);
+import { Header } from './components/Header';
+import { WidgetPanel } from './components/widgets/WidgetPanel';
+import { QuakeTerminal } from './components/QuakeTerminal';
 
 const App: React.FC = () => {
   const { domains, activeDomain, loading, switchDomain, reload } = useDomains();
-  const [isConnected, setIsConnected] = React.useState(true);
+  const [isConnected, setIsConnected] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Listen for domain events via SSE to trigger reload
   useEffect(() => {
@@ -75,81 +54,76 @@ const App: React.FC = () => {
     if (!success) {
       alert('Failed to switch domain');
     }
+    // Close sidebar on mobile after switching
+    setSidebarOpen(false);
   };
 
+  // Close sidebar when clicking outside on mobile
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (!sidebarOpen) return;
+      const target = e.target as HTMLElement;
+      const panel = document.getElementById('widget-panel');
+      const toggle = document.getElementById('sidebar-toggle');
+      if (panel && toggle && !panel.contains(target) && !toggle.contains(target)) {
+        setSidebarOpen(false);
+      }
+    };
+
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [sidebarOpen]);
+
+  // Apply sidebar-open class to body
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.classList.add('sidebar-open');
+    } else {
+      document.body.classList.remove('sidebar-open');
+    }
+  }, [sidebarOpen]);
+
   return (
-    <div className="app-layout">
-      {/* Header */}
-      <header className="header">
-        <div
-          style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: isConnected ? 'var(--success)' : 'var(--error)',
-            flexShrink: 0,
-          }}
-          title={isConnected ? 'Connected' : 'Disconnected'}
+    <>
+      <QuakeTerminal />
+      <div id="app">
+        <Header
+          isConnected={isConnected}
+          domains={domains}
+          activeDomain={activeDomain}
+          onSwitchDomain={handleSwitchDomain}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         />
-        <h1>
-          <AtridesHawkIcon />
-          <span>Majordomo</span>
-        </h1>
 
-        {!loading && (
-          <DomainTabs
-            domains={domains}
-            activeDomain={activeDomain}
-            onSwitch={handleSwitchDomain}
-          />
-        )}
+        {/* Main Chat Pane */}
+        <main id="chat-pane">
+          {loading ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                color: 'var(--text-dim)',
+              }}
+            >
+              Loading...
+            </div>
+          ) : (
+            <ChatPane activeDomain={activeDomain} />
+          )}
+        </main>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-            Domain: <strong style={{ color: 'var(--text)' }}>{activeDomain}</strong>
-          </span>
-        </div>
-      </header>
-
-      {/* Main Chat Pane */}
-      <main style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-        {loading ? (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-              color: 'var(--text-dim)',
-            }}
-          >
-            Loading...
-          </div>
-        ) : (
-          <ChatPane activeDomain={activeDomain} />
-        )}
-      </main>
-
-      {/* Sidebar - Placeholder for Phase 3 */}
-      <aside
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          minWidth: 0,
-          padding: '24px',
-          background: 'var(--surface)',
-        }}
-      >
-        <div style={{ color: 'var(--text-dim)', fontSize: '13px', textAlign: 'center' }}>
-          <h3 style={{ color: 'var(--accent)', marginBottom: '12px', fontSize: '13px' }}>
-            Widgets
-          </h3>
-          <p>Placeholder sidebar</p>
-          <p style={{ marginTop: '8px', fontSize: '11px' }}>Coming in Phase 3</p>
-        </div>
-      </aside>
-    </div>
+        {/* Widget Panel */}
+        <WidgetPanel
+          domains={domains}
+          activeDomain={activeDomain}
+          onSwitchDomain={handleSwitchDomain}
+        />
+      </div>
+    </>
   );
 };
 
@@ -161,3 +135,10 @@ if (!rootElement) {
 
 const root = createRoot(rootElement);
 root.render(<App />);
+
+// PWA Service Worker registration
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {
+    console.log('Service worker registration failed');
+  });
+}
