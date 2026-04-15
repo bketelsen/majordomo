@@ -870,8 +870,22 @@ app.get("/sse", (c) => {
       controller.enqueue(
         new TextEncoder().encode(`data: ${JSON.stringify({ event: "connected", clientId })}\n\n`)
       );
+
+      // Heartbeat every 15s to keep HTTP/2 streams alive through Tailscale proxy
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(new TextEncoder().encode(`: heartbeat\n\n`));
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, 15000);
+
+      // Store heartbeat ref for cleanup
+      (controller as any)._heartbeat = heartbeat;
     },
     cancel() {
+      const ctrl = wsClients.get(clientId)?.controller as any;
+      if (ctrl?._heartbeat) clearInterval(ctrl._heartbeat);
       wsClients.delete(clientId);
       console.log(`[web] SSE client disconnected: ${clientId}`);
     },
