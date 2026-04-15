@@ -490,14 +490,26 @@ app.get("/api/widgets/:name", async (c) => {
 // Container actions (stop/start/restart)
 app.post("/api/containers/:runtime/:id/:action", async (c) => {
   const { runtime, id, action } = c.req.param();
+  
+  // Validate runtime
+  if (runtime !== "docker" && runtime !== "incus") {
+    return c.json({ error: "Invalid runtime" }, 400);
+  }
+  
+  // Validate container ID (alphanumeric, hyphens, underscores only)
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+    return c.json({ error: "Invalid container ID" }, 400);
+  }
+  
+  // Validate action
   if (!["start","stop","restart"].includes(action)) {
     return c.json({ error: "Invalid action" }, 400);
   }
+  
   const act = action as "start" | "stop" | "restart";
   let ok = false;
   if (runtime === "docker") ok = await dockerAction(id, act);
   else if (runtime === "incus") ok = await incusAction(id, act);
-  else return c.json({ error: "Unknown runtime" }, 400);
   return c.json({ ok });
 });
 
