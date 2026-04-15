@@ -350,8 +350,6 @@ async function getWidgetData(name: string): Promise<unknown> {
   // Fallback to legacy widgets
   switch (name) {
     case "containers":  return await computeContainersWidget();
-    case "subagents":   return await computeSubagentsWidget();
-    case "schedules":   return await computeSchedulesWidget();
     case "email":       return await computeEmailWidget();
     default: {
       // Try file cache for unknown widget names
@@ -373,60 +371,9 @@ async function computeContainersWidget(): Promise<unknown> {
   return { containers, updatedAt: Date.now() };
 }
 
-async function computeSubagentsWidget(): Promise<unknown> {
-  const dbPath = path.join(DATA_ROOT, "subagents.db");
-  try {
-    const db = new Database(dbPath, { readonly: true });
-    const rows = db.prepare(
-      "SELECT * FROM runs ORDER BY started_at DESC LIMIT 50"
-    ).all() as Array<Record<string, unknown>>;
-    db.close();
-    const runs = rows.map(r => ({
-      id: r.id,
-      agent: r.agent,
-      status: r.status,
-      startedAt: r.started_at,
-      finishedAt: r.finished_at ?? null,
-      retries: r.retries,
-      outputPreview: r.output ? String(r.output).slice(0, 200) : null,
-      error: r.error ?? null,
-    }));
-    return { runs, updatedAt: Date.now() };
-  } catch {
-    return { runs: [], updatedAt: Date.now() };
-  }
-}
 
-async function computeSchedulesWidget(): Promise<unknown> {
-  const dbPath = path.join(DATA_ROOT, "scheduler.db");
-  try {
-    const db = new Database(dbPath, { readonly: true });
-    const jobs = db.prepare(`
-      SELECT j.id, j.cron, j.action_type, j.action_data, j.enabled,
-             MAX(r.ran_at) as last_ran, SUM(CASE WHEN r.success=1 THEN 1 ELSE 0 END) as run_count
-      FROM jobs j
-      LEFT JOIN runs r ON j.id = r.job_id
-      GROUP BY j.id
-      ORDER BY j.id
-    `).all() as Array<Record<string, unknown>>;
-    db.close();
-    return {
-      jobs: jobs.map(j => ({
-        id: j.id,
-        cron: j.cron,
-        action: (() => {
-          try { const d = JSON.parse(j.action_data as string); return d.command ?? d.message ?? String(j.action_data); } catch { return String(j.action_data); }
-        })(),
-        enabled: Boolean(j.enabled),
-        lastRan: j.last_ran ?? null,
-        runCount: j.run_count ?? 0,
-      })),
-      updatedAt: Date.now(),
-    };
-  } catch {
-    return { jobs: [], updatedAt: Date.now() };
-  }
-}
+
+
 
 async function computeEmailWidget(): Promise<unknown> {
   const { messages, configured } = await fetchRecentEmails();
@@ -555,29 +502,7 @@ app.post("/api/containers/:runtime/:id/:action", async (c) => {
 });
 
 // Trigger a scheduled job immediately
-app.post("/api/schedules/:id/trigger", async (c) => {
-  const jobId = c.req.param("id");
-  const manager = (globalThis as Record<string, unknown>).__majordomoManager as {
-    switchDomain: (domain: string) => Promise<void>;
-    sendMessage: (t: string) => Promise<string>;
-  } | undefined;
-  if (!manager) return c.json({ error: "Agent not available" }, 503);
-  // Send the job's action as a message to the general session
-  const dbPath = path.join(DATA_ROOT, "scheduler.db");
-  try {
-    const db = new Database(dbPath, { readonly: true });
-    const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId) as Record<string,unknown> | undefined;
-    db.close();
-    if (!job) return c.json({ error: "Job not found" }, 404);
-    const data = JSON.parse(job.action_data as string);
-    const msg = job.action_type === "pi_command" ? data.command : data.message;
-    await manager.switchDomain("general");
-    manager.sendMessage(msg).catch(() => {});
-    return c.json({ triggered: true, job: jobId });
-  } catch (err) {
-    return c.json({ error: String(err) }, 500);
-  }
-});
+// POST /api/schedules/:id/trigger moved to schedules plugin
 
 
 

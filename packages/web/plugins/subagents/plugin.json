@@ -1,0 +1,30 @@
+{
+  "id": "subagents",
+  "version": "1.0.0",
+  "name": "Subagent Runs",
+  "description": "Monitor subagent execution history and status",
+  "icon": "🤖",
+  
+  "author": {
+    "name": "Majordomo Team"
+  },
+  
+  "permissions": {
+    "database": {
+      "shared": true
+    },
+    "network": false,
+    "filesystem": {
+      "read": [],
+      "write": []
+    }
+  },
+  
+  "server": "./server.ts",
+  "client": "./client.ts",
+  
+  "config": {
+    "maxRuns": 50,
+    "displayLimit": 8
+  }
+}
