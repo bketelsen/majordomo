@@ -155,6 +155,212 @@ function extractTextContent(content: unknown): string {
     .trim();
 }
 
+// ── Message cache for performance ─────────────────────────────────────────────
+
+interface CachedMessages {
+  messages: SessionTimelineItem[];
+  timestamp: number;
+  fileSize: number;
+}
+
+const messageCache = new Map<string, CachedMessages>();
+const CACHE_TTL = 5000; // 5 seconds
+const MAX_CACHE_ENTRIES = 50;
+
+function getCacheKey(domain: string, limit: number, before?: number): string {
+  return `${domain}:${limit}:${before ?? 'none'}`;
+}
+
+function pruneCache(): void {
+  if (messageCache.size <= MAX_CACHE_ENTRIES) return;
+  const entries = Array.from(messageCache.entries());
+  entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+  // Remove oldest 25%
+  const toRemove = Math.floor(MAX_CACHE_ENTRIES * 0.25);
+  for (let i = 0; i < toRemove; i++) {
+    messageCache.delete(entries[i][0]);
+  }
+}
+
+/**
+ * Read lines from end of file in reverse order.
+ * Optimized for reading recent messages without parsing the entire file.
+ */
+async function readLinesReverse(filePath: string, maxLines: number): Promise<string[]> {
+  const fileHandle = await fs.open(filePath, 'r');
+  try {
+    const stats = await fileHandle.stat();
+    const fileSize = stats.size;
+    
+    if (fileSize === 0) return [];
+
+    const CHUNK_SIZE = 64 * 1024; // 64KB chunks
+    let lines: string[] = [];
+    let position = fileSize;
+    let remainder = '';
+
+    while (position > 0 && lines.length < maxLines) {
+      const chunkSize = Math.min(CHUNK_SIZE, position);
+      position -= chunkSize;
+
+      const buffer = Buffer.allocUnsafe(chunkSize);
+      await fileHandle.read(buffer, 0, chunkSize, position);
+      
+      const chunk = buffer.toString('utf-8') + remainder;
+      const chunkLines = chunk.split('\n');
+
+      // First element might be incomplete line from previous chunk
+      remainder = chunkLines[0];
+      
+      // Process lines in reverse (skip first which is remainder)
+      for (let i = chunkLines.length - 1; i >= 1; i--) {
+        const line = chunkLines[i].trim();
+        if (line) {
+          lines.push(line);
+          if (lines.length >= maxLines) break;
+        }
+      }
+    }
+
+    // Handle remainder if we've read the entire file
+    if (position === 0 && remainder.trim() && lines.length < maxLines) {
+      lines.push(remainder.trim());
+    }
+
+    return lines;
+  } finally {
+    await fileHandle.close();
+  }
+}
+
+function parseMessageEntry(line: string, domain: string, isUnifiedHistory: boolean, messages: SessionTimelineItem[], toolCallIndex: Map<string, number>): void {
+  try {
+    const entry = JSON.parse(line);
+
+    const entryDomain = entry.metadata?.domain;
+    if (isUnifiedHistory && entryDomain && entryDomain !== domain) return;
+
+    if (entry.type !== "message") return;
+    const msg = entry.message;
+    if (!msg) return;
+
+    const timestamp = normalizeTimestamp(entry.timestamp ?? msg.timestamp);
+
+    if (msg.role === "user") {
+      const text = extractTextContent(msg.content);
+      if (!text) return;
+
+      messages.push({
+        id: entry.id ?? `u-${messages.length}`,
+        kind: "chat",
+        role: "user",
+        text,
+        timestamp,
+        source: entry.source,
+      });
+      return;
+    }
+
+    if (msg.role === "assistant") {
+      if (!Array.isArray(msg.content)) {
+        const text = extractTextContent(msg.content);
+        if (text) {
+          messages.push({
+            id: entry.id ?? `a-${messages.length}`,
+            kind: "chat",
+            role: "assistant",
+            text,
+            timestamp,
+          });
+        }
+        return;
+      }
+
+      let textBuffer = "";
+      let textIndex = 0;
+      const flushTextBuffer = () => {
+        const text = textBuffer.trim();
+        if (!text) {
+          textBuffer = "";
+          return;
+        }
+        messages.push({
+          id: `${entry.id ?? `a-${messages.length}`}-text-${textIndex++}`,
+          kind: "chat",
+          role: "assistant",
+          text,
+          timestamp,
+        });
+        textBuffer = "";
+      };
+
+      for (const part of msg.content) {
+        if (!part || typeof part !== "object") continue;
+
+        if (part.type === "text") {
+          textBuffer += part.text ?? "";
+          continue;
+        }
+
+        flushTextBuffer();
+
+        if (part.type === "thinking") {
+          const thinking = (part.thinking ?? "").trim();
+          if (!thinking) continue;
+          messages.push({
+            id: `${entry.id ?? `a-${messages.length}`}-thinking-${messages.length}`,
+            kind: "thinking",
+            text: thinking,
+            timestamp,
+          });
+          continue;
+        }
+
+        if (part.type === "toolCall") {
+          const item: ToolCallMessage = {
+            id: `${entry.id ?? `a-${messages.length}`}-tool-${messages.length}`,
+            kind: "tool_call",
+            toolCallId: part.id,
+            toolName: part.name ?? "tool",
+            args: part.arguments,
+            timestamp,
+            status: "running",
+          };
+          messages.push(item);
+          if (part.id) toolCallIndex.set(part.id, messages.length - 1);
+        }
+      }
+
+      flushTextBuffer();
+      return;
+    }
+
+    if (msg.role === "toolResult") {
+      const resultText = extractTextContent(msg.content);
+      const idx = msg.toolCallId ? toolCallIndex.get(msg.toolCallId) : undefined;
+
+      if (idx !== undefined) {
+        const existing = messages[idx];
+        if (existing && existing.kind === "tool_call") {
+          existing.status = msg.isError ? "error" : "success";
+          existing.resultText = resultText;
+          return;
+        }
+      }
+
+      messages.push({
+        id: entry.id ?? `tr-${messages.length}`,
+        kind: "tool_call",
+        toolCallId: msg.toolCallId,
+        toolName: msg.toolName ?? "tool",
+        timestamp,
+        status: msg.isError ? "error" : "success",
+        resultText,
+      });
+    }
+  } catch { /* skip malformed lines */ }
+}
+
 async function readSessionMessages(domain: string, limit = 100, before?: number): Promise<SessionTimelineItem[]> {
   const unifiedSessionFile = path.join(DATA_ROOT, "sessions", "session.jsonl");
   const legacySessionFile = path.join(DATA_ROOT, "sessions", domain, "session.jsonl");
@@ -163,152 +369,56 @@ async function readSessionMessages(domain: string, limit = 100, before?: number)
   const exists = await fs.access(sessionFile).then(() => true).catch(() => false);
   if (!exists) return [];
 
+  // Check cache
+  const cacheKey = getCacheKey(domain, limit, before);
+  const cached = messageCache.get(cacheKey);
+  
+  if (cached) {
+    const stats = await fs.stat(sessionFile);
+    const now = Date.now();
+    
+    // Cache hit if file hasn't changed and cache is fresh
+    if (stats.size === cached.fileSize && (now - cached.timestamp) < CACHE_TTL) {
+      return cached.messages;
+    }
+    
+    // Invalidate stale cache
+    messageCache.delete(cacheKey);
+  }
+
+  const isUnifiedHistory = sessionFile === unifiedSessionFile;
   const messages: SessionTimelineItem[] = [];
   const toolCallIndex = new Map<string, number>();
 
-  // Stream JSONL line by line
-  const rl = createInterface({
-    input: createReadStream(sessionFile, { encoding: "utf-8" }),
-    crlfDelay: Infinity,
-  });
+  // Optimized reverse reading: estimate we need ~3x lines to get enough domain-filtered messages
+  // This is a heuristic that works well when domains are interleaved
+  const estimatedLinesToRead = before === undefined ? limit * 3 : limit * 5;
+  const lines = await readLinesReverse(sessionFile, estimatedLinesToRead);
 
-  for await (const line of rl) {
-    if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line);
-
-      const entryDomain = entry.metadata?.domain;
-      const isUnifiedHistory = sessionFile === unifiedSessionFile;
-      if (isUnifiedHistory && entryDomain && entryDomain !== domain) continue;
-
-      if (entry.type !== "message") continue;
-      const msg = entry.message;
-      if (!msg) continue;
-
-      const timestamp = normalizeTimestamp(entry.timestamp ?? msg.timestamp);
-
-      if (msg.role === "user") {
-        const text = extractTextContent(msg.content);
-        if (!text) continue;
-
-        messages.push({
-          id: entry.id ?? `u-${messages.length}`,
-          kind: "chat",
-          role: "user",
-          text,
-          timestamp,
-          source: entry.source,
-        });
-        continue;
-      }
-
-      if (msg.role === "assistant") {
-        if (!Array.isArray(msg.content)) {
-          const text = extractTextContent(msg.content);
-          if (text) {
-            messages.push({
-              id: entry.id ?? `a-${messages.length}`,
-              kind: "chat",
-              role: "assistant",
-              text,
-              timestamp,
-            });
-          }
-          continue;
-        }
-
-        let textBuffer = "";
-        let textIndex = 0;
-        const flushTextBuffer = () => {
-          const text = textBuffer.trim();
-          if (!text) {
-            textBuffer = "";
-            return;
-          }
-          messages.push({
-            id: `${entry.id ?? `a-${messages.length}`}-text-${textIndex++}`,
-            kind: "chat",
-            role: "assistant",
-            text,
-            timestamp,
-          });
-          textBuffer = "";
-        };
-
-        for (const part of msg.content) {
-          if (!part || typeof part !== "object") continue;
-
-          if (part.type === "text") {
-            textBuffer += part.text ?? "";
-            continue;
-          }
-
-          flushTextBuffer();
-
-          if (part.type === "thinking") {
-            const thinking = (part.thinking ?? "").trim();
-            if (!thinking) continue;
-            messages.push({
-              id: `${entry.id ?? `a-${messages.length}`}-thinking-${messages.length}`,
-              kind: "thinking",
-              text: thinking,
-              timestamp,
-            });
-            continue;
-          }
-
-          if (part.type === "toolCall") {
-            const item: ToolCallMessage = {
-              id: `${entry.id ?? `a-${messages.length}`}-tool-${messages.length}`,
-              kind: "tool_call",
-              toolCallId: part.id,
-              toolName: part.name ?? "tool",
-              args: part.arguments,
-              timestamp,
-              status: "running",
-            };
-            messages.push(item);
-            if (part.id) toolCallIndex.set(part.id, messages.length - 1);
-          }
-        }
-
-        flushTextBuffer();
-        continue;
-      }
-
-      if (msg.role === "toolResult") {
-        const resultText = extractTextContent(msg.content);
-        const idx = msg.toolCallId ? toolCallIndex.get(msg.toolCallId) : undefined;
-
-        if (idx !== undefined) {
-          const existing = messages[idx];
-          if (existing && existing.kind === "tool_call") {
-            existing.status = msg.isError ? "error" : "success";
-            existing.resultText = resultText;
-            continue;
-          }
-        }
-
-        messages.push({
-          id: entry.id ?? `tr-${messages.length}`,
-          kind: "tool_call",
-          toolCallId: msg.toolCallId,
-          toolName: msg.toolName ?? "tool",
-          timestamp,
-          status: msg.isError ? "error" : "success",
-          resultText,
-        });
-      }
-    } catch { /* skip malformed lines */ }
+  // Process lines in reverse order (most recent first)
+  for (let i = lines.length - 1; i >= 0; i--) {
+    parseMessageEntry(lines[i], domain, isUnifiedHistory, messages, toolCallIndex);
   }
 
+  // Apply before filter and limit
   let result = messages;
   if (before !== undefined) {
     const idx = result.findIndex(m => m.timestamp === before);
     if (idx > 0) result = result.slice(0, idx);
   }
 
-  return result.slice(-limit);
+  result = result.slice(-limit);
+
+  // Update cache
+  const stats = await fs.stat(sessionFile);
+  messageCache.set(cacheKey, {
+    messages: result,
+    timestamp: Date.now(),
+    fileSize: stats.size,
+  });
+  pruneCache();
+
+  return result;
 }
 
 // ── Domains helper ─────────────────────────────────────────────────────────────
