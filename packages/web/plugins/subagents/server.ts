@@ -25,6 +25,8 @@ export const plugin: WidgetPlugin = {
         id: r.id,
         agent: r.agent,
         status: r.status,
+        provider: r.provider ?? null,
+        model: r.model ?? null,
         startedAt: r.started_at,
         finishedAt: r.finished_at ?? null,
         retries: r.retries,

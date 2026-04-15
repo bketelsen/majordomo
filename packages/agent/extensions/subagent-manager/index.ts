@@ -71,6 +71,8 @@ interface RunRecord {
   output?: string;
   error?: string;
   stderr?: string;
+  provider?: string;
+  model?: string;
   startedAt: number;
   finishedAt?: number;
   retries: number;
@@ -183,6 +185,13 @@ function openRunsDb(dataRoot: string): Database {  const db = new Database(path.
   try { db.exec(`ALTER TABLE runs ADD COLUMN stderr TEXT`); } catch (err) {
     logger.debug("stderr column already exists in runs table", { error: err });
   }
+  // Add provider and model columns idempotently
+  try { db.exec(`ALTER TABLE runs ADD COLUMN provider TEXT`); } catch (err) {
+    logger.debug("provider column already exists in runs table", { error: err });
+  }
+  try { db.exec(`ALTER TABLE runs ADD COLUMN model TEXT`); } catch (err) {
+    logger.debug("model column already exists in runs table", { error: err });
+  }
 
   // Create workflow_steps table
   db.exec(`
@@ -239,13 +248,13 @@ function openRunsDb(dataRoot: string): Database {  const db = new Database(path.
   return db;
 }
 
-function createRun(db: Database, agent: string, input: Record<string, unknown>): RunRecord {
+function createRun(db: Database, agent: string, input: Record<string, unknown>, provider?: string, model?: string): RunRecord {
   const id = `${agent}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   db.prepare(`
-    INSERT INTO runs (id, agent, status, input, started_at)
-    VALUES (?, ?, 'running', ?, ?)
-  `).run(id, agent, JSON.stringify(input), Date.now());
-  return { id, agent, status: "running", input, startedAt: Date.now(), retries: 0 };
+    INSERT INTO runs (id, agent, status, input, provider, model, started_at)
+    VALUES (?, ?, 'running', ?, ?, ?, ?)
+  `).run(id, agent, JSON.stringify(input), provider ?? null, model ?? null, Date.now());
+  return { id, agent, status: "running", input, provider, model, startedAt: Date.now(), retries: 0 };
 }
 
 function updateRun(db: Database, id: string, fields: Partial<Pick<RunRecord, 'status' | 'output' | 'error' | 'stderr' | 'retries' | 'finishedAt'>>): void {
@@ -280,6 +289,8 @@ function getRun(db: Database, id: string): RunRecord | null {
     output: row.output as string | undefined,
     error: row.error as string | undefined,
     stderr: row.stderr as string | undefined,
+    provider: row.provider as string | undefined,
+    model: row.model as string | undefined,
     startedAt: row.started_at as number,
     finishedAt: row.finished_at as number | undefined,
     retries: row.retries as number,
@@ -296,6 +307,8 @@ function getRecentRuns(db: Database, limit = 10): RunRecord[] {
     output: row.output as string | undefined,
     error: row.error as string | undefined,
     stderr: row.stderr as string | undefined,
+    provider: row.provider as string | undefined,
+    model: row.model as string | undefined,
     startedAt: row.started_at as number,
     finishedAt: row.finished_at as number | undefined,
     retries: row.retries as number,
@@ -651,7 +664,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
           };
         }
 
-        const run = createRun(db, params.agent, params.input as Record<string, unknown>);
+        const run = createRun(db, params.agent, params.input as Record<string, unknown>, agentDef.model?.provider, agentDef.model?.id);
         const notify = params.notify_on_complete !== false;
 
         // Fire and forget — run async
@@ -774,6 +787,8 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
             `**Run:** ${run.id}`,
             `**Agent:** ${run.agent}`,
             `**Status:** ${run.status}`,
+            run.provider ? `**Provider:** ${run.provider}` : "",
+            run.model ? `**Model:** ${run.model}` : "",
             `**Elapsed:** ${elapsed}`,
             run.retries > 0 ? `**Retries:** ${run.retries}` : "",
             run.error ? `**Error:** ${run.error}` : "",
