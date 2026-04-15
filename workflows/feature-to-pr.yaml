@@ -1,0 +1,124 @@
+name: feature-to-pr
+description: Take a feature description through PRD → design → implementation → PR
+
+steps:
+  - id: investigate
+    agent: researcher
+    input:
+      query: |
+        Research the feature area for: {{workflow.input.feature}}
+        
+        Repository: {{workflow.input.repo_path}}
+        {{#if workflow.input.context}}
+        Additional context: {{workflow.input.context}}
+        {{/if}}
+        
+        Explore:
+        - Existing code in this area
+        - Similar patterns already in the codebase
+        - Technical constraints or dependencies
+        - Any related issues or PRs
+        
+        Provide detailed findings that will inform PRD creation and design.
+      depth: deep
+
+  - id: prd
+    agent: prd-writer
+    depends_on: investigate
+    input:
+      feature: "{{workflow.input.feature}}"
+      context: |
+        Research findings:
+        {{steps.investigate.output.summary}}
+        
+        Key points:
+        {{#each steps.investigate.output.key_points}}
+        - {{this}}
+        {{/each}}
+        
+        {{#if steps.investigate.output.raw_findings}}
+        Detailed findings:
+        {{steps.investigate.output.raw_findings}}
+        {{/if}}
+      constraints: "{{workflow.input.context}}"
+
+  - id: design
+    agent: architect
+    depends_on: prd
+    input:
+      findings: |
+        # Feature Request
+        {{workflow.input.feature}}
+        
+        # PRD
+        {{steps.prd.output.prd}}
+        
+        # Research Context
+        {{steps.investigate.output.summary}}
+        
+        Create an implementation design that addresses all user stories and acceptance criteria in the PRD.
+        Reference user story IDs (e.g., US-001) in your design.
+      sources: "{{steps.investigate.output.sources}}"
+      constraints: "{{workflow.input.context}}"
+
+  - id: implement
+    agent: developer
+    depends_on: design
+    input:
+      design: |
+        # Design Document
+        {{steps.design.output.design_doc}}
+        
+        # PRD for Reference
+        {{steps.prd.output.prd}}
+        
+        # Implementation Notes
+        {{steps.design.output.implementation_notes}}
+        
+        Repository: {{workflow.input.repo_path}}
+        
+        Implement the design completely. Ensure all acceptance criteria from the PRD are met.
+        Run tests before committing.
+        Create a new branch named: feature/{{workflow.input.branch_name | default "new-feature"}}
+      constraints: "{{workflow.input.context}}"
+      implementation_notes: |
+        {{steps.design.output.implementation_notes}}
+        
+        Test plan:
+        {{steps.design.output.test_plan}}
+
+  - id: open_pr
+    agent: developer
+    depends_on: implement
+    input:
+      task: |
+        Open a pull request for the implemented feature.
+        
+        Repository: {{workflow.input.repo_path}}
+        Branch: feature/{{workflow.input.branch_name | default "new-feature"}}
+        
+        # Feature Summary
+        {{steps.prd.output.summary}}
+        
+        # PRD Reference
+        {{steps.prd.output.prd}}
+        
+        # Implementation Summary
+        {{steps.implement.output.summary}}
+        
+        Instructions:
+        - Push the current branch
+        - Use gh CLI to open a PR
+        - PR title: "feat: {{steps.prd.output.summary}}"
+        - PR body should include:
+          * Brief description of the feature
+          * Reference to user stories from the PRD (list each US-XXX ID with its acceptance criteria)
+          * Summary of implementation approach
+          * Link to any relevant issues
+          * Test coverage notes
+        - Target: main (or repo default branch)
+        - Output the PR URL
+
+on_complete:
+  notify: true
+  message: "Feature PR created: {{steps.open_pr.output}}"
