@@ -137,6 +137,24 @@ html, body {
   border-radius: 2px;
 }
 
+/* ── Animations ────────────────────────────────────────────────────────── */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 /* ── Mobile Responsive ─────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .app-layout {

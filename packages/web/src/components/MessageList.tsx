@@ -1,0 +1,163 @@
+/**
+ * MessageList - Scrollable message history with streaming support
+ */
+
+import React, { useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { TimelineItem } from '../hooks/useMessages';
+import { ToolCall } from '../hooks/useSSE';
+import { Message } from './Message';
+import { ToolCallCard } from './ToolCallCard';
+import { ThinkingBlock } from './ThinkingBlock';
+
+interface MessageListProps {
+  messages: TimelineItem[];
+  streamingText?: string;
+  thinkingText?: string;
+  toolCalls?: ToolCall[];
+  isStreaming?: boolean;
+}
+
+export const MessageList: React.FC<MessageListProps> = ({
+  messages,
+  streamingText = '',
+  thinkingText = '',
+  toolCalls = [],
+  isStreaming = false,
+}) => {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streamingText, thinkingText, toolCalls]);
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        scrollBehavior: 'smooth',
+        minWidth: 0,
+      }}
+    >
+      {messages.length === 0 && !isStreaming && (
+        <div
+          style={{
+            color: 'var(--text-dim)',
+            fontSize: '13px',
+            padding: '8px 0',
+            textAlign: 'center',
+            marginTop: '40px',
+          }}
+        >
+          No messages yet. Say hello!
+        </div>
+      )}
+
+      {messages.map((msg) => {
+        if (msg.kind === 'thinking') {
+          return <ThinkingBlock key={msg.id} content={msg.text || ''} />;
+        }
+        if (msg.kind === 'tool_call') {
+          return (
+            <ToolCallCard
+              key={msg.id}
+              toolCall={{
+                id: msg.id,
+                toolName: msg.toolName || 'tool',
+                args: msg.args,
+                status: msg.status || 'success',
+                resultText: msg.resultText,
+              }}
+            />
+          );
+        }
+        return <Message key={msg.id} message={msg} />;
+      })}
+
+      {/* Active tool calls (before streaming message) */}
+      {toolCalls.map((toolCall) => (
+        <ToolCallCard key={toolCall.id} toolCall={toolCall} />
+      ))}
+
+      {/* Thinking block during streaming */}
+      {thinkingText && <ThinkingBlock content={thinkingText} isStreaming={isStreaming} />}
+
+      {/* Streaming message */}
+      {streamingText && (
+        <div
+          className="msg agent streaming"
+          style={{
+            maxWidth: 'min(85%, 100%)',
+            minWidth: 0,
+            padding: '12px 16px',
+            borderRadius: 'var(--radius)',
+            fontSize: '16px',
+            lineHeight: 1.75,
+            overflowWrap: 'anywhere',
+            wordBreak: 'break-word',
+            alignSelf: 'flex-start',
+            background: 'linear-gradient(135deg, #1a0e02, #0c0a09)',
+            border: '1px solid var(--accent)',
+            boxShadow: '0 0 12px rgba(217,119,6,0.25)',
+          }}
+        >
+          <div className="message-content">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                pre: ({ children }) => (
+                  <pre
+                    style={{
+                      background: 'rgba(0,0,0,0.3)',
+                      padding: '8px',
+                      borderRadius: '4px',
+                      overflowX: 'auto',
+                      margin: '8px 0',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '13px',
+                    }}
+                  >
+                    {children}
+                  </pre>
+                ),
+                code: ({ inline, children, ...props }: any) =>
+                  inline ? (
+                    <code
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '14px',
+                        background: 'rgba(0,0,0,0.3)',
+                        padding: '1px 4px',
+                        borderRadius: '3px',
+                      }}
+                      {...props}
+                    >
+                      {children}
+                    </code>
+                  ) : (
+                    <code style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }} {...props}>
+                      {children}
+                    </code>
+                  ),
+                strong: ({ children }) => (
+                  <strong style={{ color: 'var(--text)' }}>{children}</strong>
+                ),
+                em: ({ children }) => <em style={{ color: 'var(--text-dim)' }}>{children}</em>,
+              }}
+            >
+              {streamingText}
+            </ReactMarkdown>
+          </div>
+        </div>
+      )}
+
+      <div ref={messagesEndRef} />
+    </div>
+  );
+};
