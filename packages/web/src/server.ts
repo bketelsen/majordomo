@@ -934,22 +934,22 @@ app.get("/apple-touch-icon.png", async (c) => {
   }
 });
 
-// ── React App (Phase 3 Migration — React at /react, vanilla JS still default) ────────────────
+// ── React App (default UI) + classic fallback ────────────────────────────────
 
-// Vanilla JS is still the default — React not yet validated in production
+// React is the default UI
 app.get("/", async (c) => {
   if (isCompiledBinary()) {
-    return c.html(indexHTML);
+    return c.html(reactIndexHTML);
   }
   try {
-    const html = await fs.readFile(path.join(STATIC_ROOT, "index.html"), "utf-8");
+    const html = await fs.readFile(path.join(import.meta.dirname, "index.html"), "utf-8");
     return c.html(html);
   } catch {
-    return c.text("Majordomo Web — frontend not built yet.", 200);
+    return c.text("React frontend not built yet. Run: bun run build:client", 200);
   }
 });
 
-// React UI at /react for testing
+// /react alias
 app.get("/react", async (c) => {
   if (isCompiledBinary()) {
     return c.html(reactIndexHTML);
