@@ -421,6 +421,13 @@ app.post("/api/domains/:id/activate", async (c) => {
 
 app.get("/api/messages/:domain", async (c) => {
   const domain = c.req.param("domain");
+  
+  // Validate domain exists in manifest to prevent path traversal
+  const validDomains = await readDomains();
+  if (!validDomains.some(d => d.id === domain)) {
+    return c.json({ error: "Domain not found" }, 404);
+  }
+  
   const limit = parseInt(c.req.query("limit") ?? "100");
   const before = c.req.query("before") ? parseInt(c.req.query("before")!) : undefined;
 
@@ -431,6 +438,13 @@ app.get("/api/messages/:domain", async (c) => {
 // POST a message to a domain (web UI → agent)
 app.post("/api/messages/:domain", async (c) => {
   const domain = c.req.param("domain");
+  
+  // Validate domain exists in manifest to prevent path traversal
+  const validDomains = await readDomains();
+  if (!validDomains.some(d => d.id === domain)) {
+    return c.json({ error: "Domain not found" }, 404);
+  }
+  
   const body = await c.req.json();
   const text: string = body.text;
 
