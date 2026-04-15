@@ -52,8 +52,10 @@ export function useSSE(activeDomain: string) {
 
   useEffect(() => {
     let evtSource: EventSource | null = null;
+    let destroyed = false;
 
     function connect() {
+      if (destroyed) return;
       evtSource = new EventSource('/sse');
 
       evtSource.onopen = () => {
@@ -63,8 +65,8 @@ export function useSSE(activeDomain: string) {
       evtSource.onerror = () => {
         setState(prev => ({ ...prev, isConnected: false }));
         evtSource?.close();
-        // Reconnect after 3 seconds
-        setTimeout(connect, 3000);
+        // Reconnect after 3 seconds (only if not destroyed)
+        if (!destroyed) setTimeout(connect, 3000);
       };
 
       evtSource.onmessage = (e) => {
@@ -192,6 +194,7 @@ export function useSSE(activeDomain: string) {
     connect();
 
     return () => {
+      destroyed = true;
       evtSource?.close();
     };
   }, [activeDomain, clearStreamingState]);
