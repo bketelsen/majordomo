@@ -1,14 +1,10 @@
 /**
  * Priorities widget plugin - server-side logic
- * 
- * Reads action-items.md from all active domains and returns critical/high priority items.
+ * Self-contained: no external dependencies, no relative imports outside plugin dir.
  */
 
-import type { WidgetPlugin, WidgetContext } from "../../src/types.ts";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import yaml from "js-yaml";
-import { markPriorityDone } from "../../src/lib/priorities.ts";
 
 const HOME = process.env.HOME ?? "/root";
 const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");
@@ -17,9 +13,6 @@ const MEMORY_ROOT = path.join(MAJORDOMO_STATE, "memory");
 interface Domain {
   id: string;
   path: string;
-  type: string;
-  label: string;
-  triggers: string[];
   status?: string;
 }
 
@@ -30,12 +23,33 @@ interface PriorityItem {
   due?: string;
 }
 
+// Minimal YAML domains parser — avoids js-yaml dependency
+function parseDomains(content: string): Domain[] {
+  const domains: Domain[] = [];
+  const lines = content.split("\n");
+  let current: Partial<Domain> | null = null;
+
+  for (const line of lines) {
+    const idMatch = line.match(/^\s*-\s+id:\s+(.+)$/);
+    if (idMatch) {
+      if (current?.id) domains.push(current as Domain);
+      current = { id: idMatch[1].trim() };
+      continue;
+    }
+    if (!current) continue;
+    const pathMatch = line.match(/^\s+path:\s+(.+)$/);
+    if (pathMatch) current.path = pathMatch[1].trim();
+    const statusMatch = line.match(/^\s+status:\s+(.+)$/);
+    if (statusMatch) current.status = statusMatch[1].trim();
+  }
+  if (current?.id) domains.push(current as Domain);
+  return domains.filter(d => d.path && d.status !== "archived");
+}
+
 async function readDomains(): Promise<Domain[]> {
-  const filePath = path.join(MEMORY_ROOT, "domains.yml");
   try {
-    const content = await fs.readFile(filePath, "utf-8");
-    const manifest = yaml.load(content) as { domains: Domain[] };
-    return (manifest.domains ?? []).filter(d => d.status !== "archived");
+    const content = await fs.readFile(path.join(MEMORY_ROOT, "domains.yml"), "utf-8");
+    return parseDomains(content);
   } catch {
     return [];
   }
@@ -46,67 +60,56 @@ async function computePriorities(): Promise<PriorityItem[]> {
   const priorities: PriorityItem[] = [];
 
   for (const domain of domains) {
-    const filePath = path.join(MEMORY_ROOT, domain.path, "action-items.md");
     try {
-      const content = await fs.readFile(filePath, "utf-8");
-      const lines = content.split("\n");
-      for (const line of lines) {
-        // Match: - [ ] task | due:YYYY-MM-DD | pri:high | ...
+      const content = await fs.readFile(path.join(MEMORY_ROOT, domain.path, "action-items.md"), "utf-8");
+      for (const line of content.split("\n")) {
         if (!line.startsWith("- [ ]")) continue;
         const taskText = line.slice(5).split(" | ")[0].trim();
         const priMatch = line.match(/\bpri:(critical|high|med|low)\b/);
         const dueMatch = line.match(/\bdue:(\d{4}-\d{2}-\d{2})\b/);
         const priority = priMatch?.[1] ?? "med";
         if (priority === "critical" || priority === "high") {
-          priorities.push({
-            domain: domain.id,
-            task: taskText,
-            priority,
-            due: dueMatch?.[1],
-          });
+          priorities.push({ domain: domain.id, task: taskText, priority, due: dueMatch?.[1] });
         }
       }
     } catch { /* domain may not have action-items */ }
   }
 
-  // Sort: critical first, then high, then by due date
-  const priorityOrder = { critical: 0, high: 1, med: 2, low: 3 };
-  priorities.sort((a, b) => {
-    const po = (priorityOrder[a.priority as keyof typeof priorityOrder] ?? 2) -
-               (priorityOrder[b.priority as keyof typeof priorityOrder] ?? 2);
+  const order = { critical: 0, high: 1, med: 2, low: 3 };
+  return priorities.sort((a, b) => {
+    const po = (order[a.priority as keyof typeof order] ?? 2) - (order[b.priority as keyof typeof order] ?? 2);
     if (po !== 0) return po;
     if (a.due && b.due) return a.due.localeCompare(b.due);
-    if (a.due) return -1;
-    if (b.due) return 1;
-    return 0;
+    return a.due ? -1 : b.due ? 1 : 0;
   });
-
-  return priorities;
 }
 
-export const plugin: WidgetPlugin = {
-  async register(app, ctx) {
-    // Register custom action endpoint for marking items done
-    app.post(`/api/widgets/${ctx.id}/done`, async (c) => {
+async function markDone(memoryRoot: string, domain: string, task: string): Promise<{ ok: boolean; error?: string }> {
+  const filePath = path.join(memoryRoot, domain, "action-items.md");
+  try {
+    const content = await fs.readFile(filePath, "utf-8");
+    const escaped = task.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const updated = content.replace(new RegExp(`^- \\[ \\] ${escaped}`, "m"), `- [x] ${task} (done ${new Date().toISOString().slice(0, 10)})`);
+    if (updated === content) return { ok: false, error: "Task not found" };
+    await fs.writeFile(filePath, updated);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export const plugin = {
+  async register(app: any, ctx: any) {
+    app.post(`/api/widgets/${ctx.id}/done`, async (c: any) => {
       const { domain, task } = await c.req.json();
-      
-      if (!domain || !task) {
-        return c.json({ error: "domain and task required" }, 400);
-      }
-      
-      const result = await markPriorityDone(MEMORY_ROOT, domain, task);
-      
-      if (!result.ok) {
-        return c.json({ error: result.error }, 400);
-      }
-      
-      return c.json({ ok: true });
+      if (!domain || !task) return c.json({ error: "domain and task required" }, 400);
+      const result = await markDone(MEMORY_ROOT, domain, task);
+      return result.ok ? c.json({ ok: true }) : c.json({ error: result.error }, 400);
     });
   },
 
-  async getData(ctx) {
+  async getData(_ctx: any) {
     const items = await computePriorities();
-    
     return {
       items,
       updatedAt: Date.now(),
