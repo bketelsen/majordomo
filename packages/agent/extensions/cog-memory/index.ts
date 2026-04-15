@@ -21,6 +21,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, type AgentToolResult, withFileMutationQueue } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createLogger } from "../../lib/logger.ts";
+import { getVaultRoot, writeToVault } from "../../lib/obsidian.ts";
 
 const logger = createLogger({ context: { component: "cog-memory" } });
 
@@ -732,6 +733,85 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
         };
       },
     });
+
+    // ── write_obsidian ───────────────────────────────────────────────────────
+
+    // Only register if OBSIDIAN_VAULT is configured
+    const vaultRoot = getVaultRoot();
+    if (vaultRoot) {
+      pi.registerTool({
+        name: "write_obsidian",
+        label: "Write to Obsidian",
+        description:
+          "Write Markdown content to a file in the Obsidian vault. " +
+          "Use this to persist deliverables — research reports, analysis, notes, " +
+          "plan summaries — directly into Obsidian. " +
+          "By default does NOT overwrite existing files; pass overwrite:true to replace them.",
+        promptSnippet: "Write Markdown content to Obsidian vault",
+        parameters: Type.Object({
+          path: Type.String({
+            description:
+              "Vault-relative path to write, e.g. 'personal/2026-04-15-memory-design.md'. " +
+              "Must end in .md. Path is relative to the vault root.",
+          }),
+          content: Type.String({
+            description: "Full Markdown content to write to the file.",
+          }),
+          overwrite: Type.Optional(
+            Type.Boolean({
+              description:
+                "Overwrite the file if it already exists? Defaults to false — " +
+                "existing files are skipped to protect Obsidian notes.",
+            })
+          ),
+        }),
+        async execute(_id, params): Promise<AgentToolResult<Record<string, unknown>>> {
+          try {
+            const result = writeToVault(
+              vaultRoot,
+              params.path,
+              params.content,
+              params.overwrite ?? false
+            );
+
+            if (result.skipped) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `⚠  File already exists — skipped (pass overwrite:true to replace): ${result.path}`,
+                  },
+                ],
+                details: { path: result.path, skipped: true },
+              };
+            }
+
+            const action = result.created ? "Created" : "Overwrote";
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `✓  Saved to Obsidian (${action}): ${result.path}`,
+                },
+              ],
+              details: { path: result.path, created: result.created },
+            };
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `✗  Failed to write to Obsidian: ${message}`,
+                },
+              ],
+              details: {},
+
+            };
+          }
+        },
+      });
+    }
 
     // ── cog_wiki_follow ──────────────────────────────────────────────────────
 

@@ -83,6 +83,7 @@ You are analyzing a codebase to identify meaningful improvement opportunities. Y
 - Group related improvements into one suggestion when they should be addressed together.
 - Every suggestion must reference exact files and (where helpful) line numbers.
 - Maximum 10 suggestions per run. If you find more, rank and return only the top 10.
+- Keep `body` fields concise — 2-4 sentences max. File path + what to change + why. No code samples in the body.
 
 ## Output format
 

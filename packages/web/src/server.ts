@@ -727,6 +727,43 @@ app.get("/api/widgets/:name", async (c) => {
 // Trigger a scheduled job immediately
 // POST /api/schedules/:id/trigger moved to schedules plugin
 
+// ── Obsidian sync API ────────────────────────────────────────────────
+
+app.post("/api/obsidian-sync", async (c) => {
+  try {
+    const { getVaultRoot, writeDailyJournal } = await import("../../agent/lib/obsidian.ts");
+    const vaultRoot = getVaultRoot();
+    
+    if (!vaultRoot) {
+      return c.json({ 
+        success: false, 
+        error: "OBSIDIAN_VAULT not configured" 
+      }, 400);
+    }
+
+    const result = writeDailyJournal(MEMORY_ROOT);
+    
+    if (!result) {
+      return c.json({ 
+        success: false, 
+        error: "Failed to write daily journal" 
+      }, 500);
+    }
+
+    return c.json({ 
+      success: true, 
+      path: result.path,
+      created: result.created
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ 
+      success: false, 
+      error: message 
+    }, 500);
+  }
+});
+
 
 
 // Inbound webhook — triggers a registered scheduler job by its webhook secret

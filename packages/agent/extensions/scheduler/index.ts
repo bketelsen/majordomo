@@ -62,6 +62,7 @@ const COG_PIPELINE_JOBS = [
   { id: "cog-reflect-weekly",     cron: "0 2 * * 0",   command: "/cog-reflect"      },
   { id: "cog-housekeeping-weekly",cron: "0 3 * * 0",   command: "/cog-housekeeping" },
   { id: "cog-evolve-weekly",      cron: "0 4 * * 0",   command: "/cog-evolve"       },
+  { id: "obsidian-daily-journal", cron: "30 23 * * *", command: "/obsidian-daily"   },
 ];
 
 // ── DB schema ─────────────────────────────────────────────────────────────────
@@ -430,6 +431,38 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
     pi.registerCommand("cog-evolve", {
       description: "Run COG /evolve — audit Majordomo's architecture and propose improvements",
       handler: async (_args, ctx) => runCogSkill("evolve", ctx),
+    });
+
+    // ── /obsidian-daily command ──────────────────────────────────────────────
+
+    pi.registerCommand("obsidian-daily", {
+      description: "Build and write daily journal to Obsidian vault",
+      handler: async (_args, ctx) => {
+        const { getVaultRoot, writeDailyJournal } = await import("../../lib/obsidian.ts");
+        const vaultRoot = getVaultRoot();
+        
+        if (!vaultRoot) {
+          ctx.ui.notify("OBSIDIAN_VAULT not configured — integration disabled", "warning");
+          return;
+        }
+
+        ctx.ui.notify("Building daily journal for Obsidian...", "info");
+
+        try {
+          const result = writeDailyJournal(cogMemoryRoot);
+          if (result) {
+            ctx.ui.notify(
+              `✓ Daily journal written: ${result.path}`,
+              "info"
+            );
+          } else {
+            ctx.ui.notify("Failed to write daily journal (vault not configured)", "error");
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          ctx.ui.notify(`✗ Failed to write daily journal: ${message}`, "error");
+        }
+      },
     });
 
     // ── /switch command ──────────────────────────────────────────────────────

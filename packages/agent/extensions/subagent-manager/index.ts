@@ -895,13 +895,33 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
                 // Strip markdown code fences if present (e.g. ```json ... ```)
                 const fenceMatch = toParse.match(/```(?:json)?\s*([\s\S]*?)```/);
                 if (fenceMatch) toParse = fenceMatch[1].trim();
-                const parsed = JSON.parse(toParse);
+
+                // Attempt 1: standard JSON parse
+                let parsed: unknown = null;
+                try {
+                  parsed = JSON.parse(toParse);
+                } catch {
+                  // Attempt 2: truncated JSON — extract individual objects with regex
+                  // Handles case where output is cut off mid-JSON
+                  const objMatches = toParse.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+                  const extracted: unknown[] = [];
+                  for (const m of objMatches) {
+                    try { extracted.push(JSON.parse(m[0])); } catch { /* skip malformed */ }
+                  }
+                  if (extracted.length > 0) {
+                    parsed = extracted;
+                    console.warn(`[workflow] iterate_over: used regex fallback, extracted ${extracted.length} items from truncated JSON`);
+                  } else {
+                    throw new Error(`Could not parse JSON (tried standard + regex extraction): ${String(toParse).slice(0, 300)}`);
+                  }
+                }
+
                 // Handle both direct arrays and objects with an array field
                 if (Array.isArray(parsed)) {
                   iterationArray = parsed;
                 } else if (parsed && typeof parsed === 'object') {
                   // Find first array field in the parsed object
-                  const arrayField = Object.values(parsed).find(v => Array.isArray(v));
+                  const arrayField = Object.values(parsed as Record<string, unknown>).find(v => Array.isArray(v));
                   if (arrayField) {
                     iterationArray = arrayField as unknown[];
                   } else {
