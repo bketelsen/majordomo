@@ -732,7 +732,13 @@ function addToolCall(toolName, args) {
   }
 
   card.innerHTML = parts.join('');
-  container.appendChild(card);
+  // Insert before streaming-msg/thinking block so tool calls appear above agent text
+  const streamEl = document.getElementById('streaming-msg') || document.getElementById('streaming-thinking');
+  if (streamEl) {
+    container.insertBefore(card, streamEl);
+  } else {
+    container.appendChild(card);
+  }
   scrollToBottom();
 }
 
