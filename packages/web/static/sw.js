@@ -6,11 +6,13 @@
  * - Network-first for all API routes (live data)
  */
 
-const CACHE_NAME = 'majordomo-v3';
+const CACHE_NAME = 'majordomo-v4';
 const STATIC_ASSETS = [
   '/',
-  '/index.html',
+  '/app.js',
+  '/app.css',
   '/atreides-hawk.svg',
+  '/apple-touch-icon.png',
   '/manifest.json'
 ];
 
