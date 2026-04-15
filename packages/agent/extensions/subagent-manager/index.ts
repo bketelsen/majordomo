@@ -834,17 +834,32 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
                 // Strip markdown code fences if present (e.g. ```json ... ```)
                 const fenceMatch = toParse.match(/```(?:json)?\s*([\s\S]*?)```/);
                 if (fenceMatch) toParse = fenceMatch[1].trim();
-                iterationArray = typeof resolved === 'string' ? JSON.parse(toParse) : resolved;
-                if (!Array.isArray(iterationArray)) {
+                const parsed = JSON.parse(toParse);
+                // Handle both direct arrays and objects with an array field
+                if (Array.isArray(parsed)) {
+                  iterationArray = parsed;
+                } else if (parsed && typeof parsed === 'object') {
+                  // Find first array field in the parsed object
+                  const arrayField = Object.values(parsed).find(v => Array.isArray(v));
+                  if (arrayField) {
+                    iterationArray = arrayField as unknown[];
+                  } else {
+                    pi.sendUserMessage(
+                      `❌ Workflow **${params.workflow}** step **${step.id}**: iterate_over resolved to object with no array field. Got: ${toParse.slice(0, 200)}`,
+                      { deliverAs: "followUp" }
+                    );
+                    return;
+                  }
+                } else {
                   pi.sendUserMessage(
-                    `❌ Workflow **${params.workflow}** step **${step.id}**: iterate_over did not resolve to an array`,
+                    `❌ Workflow **${params.workflow}** step **${step.id}**: iterate_over did not resolve to an array. Got: ${toParse.slice(0, 200)}`,
                     { deliverAs: "followUp" }
                   );
                   return;
                 }
-              } catch {
+              } catch (e) {
                 pi.sendUserMessage(
-                  `❌ Workflow **${params.workflow}** step **${step.id}**: failed to parse iterate_over result as array`,
+                  `❌ Workflow **${params.workflow}** step **${step.id}**: failed to parse iterate_over result. Error: ${e}. Value: ${String(resolved).slice(0, 200)}`,
                   { deliverAs: "followUp" }
                 );
                 return;
