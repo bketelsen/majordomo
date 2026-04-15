@@ -17,7 +17,7 @@ export const plugin: WidgetPlugin = {
       const jobId = c.req.param("id");
 
       const manager = (globalThis as Record<string, unknown>).__majordomoManager as {
-        sendMessage: (domain: string, text: string) => Promise<string>;
+        sendMessage: (text: string) => Promise<string>;
       } | undefined;
 
       if (!manager) return c.json({ error: "Agent not available" }, 503);
@@ -56,7 +56,7 @@ export const plugin: WidgetPlugin = {
           msg = data.message;
         }
 
-        manager.sendMessage("general", msg).catch(() => {});
+        manager.sendMessage(msg).catch(() => {});
         return c.json({ triggered: true, job: jobId });
       } catch (err) {
         console.error("[schedules] Failed to trigger job:", err);
