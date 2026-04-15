@@ -20,6 +20,7 @@ import { TelegramBot } from "./lib/telegram-bot.ts";
 import { runPersonaWizardIfNeeded } from "./lib/persona-wizard.ts";
 import { app as webApp, PORT as WEB_PORT, webEvents } from "../web/src/server.ts";
 import { isCompiledBinary, defaultAgents, defaultWorkflows, personaContent } from "../web/src/assets.ts";
+import "../shared/types.ts";
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -144,7 +145,7 @@ const manager = new DomainContextManager({
 await manager.initialize();
 
 // Expose manager globally so the web server can route messages to it
-(globalThis as Record<string, unknown>).__majordomoManager = manager;
+globalThis.__majordomoManager = manager;
 
 // Forward agent session events to the web event bus
 sharedEventBus.on("domain:created", (data: unknown) => webEvents.emit("domain:created", data));

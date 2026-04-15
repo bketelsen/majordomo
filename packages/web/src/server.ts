@@ -27,6 +27,7 @@ import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
 import { Database } from "bun:sqlite";
 import { readDomainsManifest, type CogDomain } from "../../shared/lib/domains.ts";
+import "../../shared/types.ts";
 
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
 import { indexHTML, isCompiledBinary, manifest, serviceWorker, appleTouchIcon } from "./assets.ts";
@@ -378,15 +379,13 @@ app.get("/health", (c) => c.json({ status: "ok", ts: Date.now() }));
 
 app.get("/api/domains", async (c) => {
   const domains = await readDomains();
-  const manager = (globalThis as Record<string, unknown>).__majordomoManager as
-    { getDomain: () => string } | undefined;
+  const manager = globalThis.__majordomoManager;
   return c.json({ domains, activeDomain: manager?.getDomain() ?? "general" });
 });
 
 app.post("/api/domains/:id/activate", async (c) => {
   const domainId = c.req.param("id");
-  const manager = (globalThis as Record<string, unknown>).__majordomoManager as
-    { switchDomain: (domain: string) => Promise<void> } | undefined;
+  const manager = globalThis.__majordomoManager;
 
   if (!manager) {
     return c.json({ success: false, error: "Agent service not available" }, 503);
@@ -435,12 +434,7 @@ app.post("/api/messages/:domain", async (c) => {
     return c.json({ error: "text is required" }, 400);
   }
 
-  const manager = (globalThis as Record<string, unknown>).__majordomoManager as {
-    getDomain: () => string;
-    isStreaming: () => boolean;
-    sendMessage: (t: string, cb?: (delta: string) => void) => Promise<string>;
-    switchDomain: (domain: string) => Promise<void>;
-  } | undefined;
+  const manager = globalThis.__majordomoManager;
 
   if (!manager) {
     return c.json({ error: "Agent service not available" }, 503);
@@ -512,10 +506,7 @@ app.post("/webhooks/:secret", async (c) => {
   if (!jobId) return c.json({ error: "Unknown webhook" }, 404);
 
   const payload = await c.req.json().catch(() => ({}));
-  const manager = (globalThis as Record<string, unknown>).__majordomoManager as {
-    switchDomain: (domain: string) => Promise<void>;
-    sendMessage: (t: string) => Promise<string>;
-  } | undefined;
+  const manager = globalThis.__majordomoManager;
 
   if (manager) {
     await manager.switchDomain("general");

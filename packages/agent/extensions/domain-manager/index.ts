@@ -14,6 +14,7 @@ import yaml from "js-yaml";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type CogDomain, type DomainsManifest, readDomainsManifest } from "../../../shared/lib/domains.ts";
+import "../../../shared/types.ts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -524,7 +525,7 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
         }
 
         // Get the manager and switch domain
-        const manager = (globalThis as any).__majordomoManager;
+        const manager = globalThis.__majordomoManager;
         if (!manager) {
           return {
             content: [{

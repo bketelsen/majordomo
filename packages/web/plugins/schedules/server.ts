@@ -6,6 +6,7 @@ import type { WidgetPlugin } from "../../src/types.ts";
 import { Database } from "bun:sqlite";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
+import "../../../shared/types.ts";
 
 const HOME = process.env.HOME ?? "/root";
 const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");
@@ -16,9 +17,7 @@ export const plugin: WidgetPlugin = {
     app.post(`/api/schedules/:id/trigger`, async (c: any) => {
       const jobId = c.req.param("id");
 
-      const manager = (globalThis as Record<string, unknown>).__majordomoManager as {
-        sendMessage: (text: string) => Promise<string>;
-      } | undefined;
+      const manager = globalThis.__majordomoManager;
 
       if (!manager) return c.json({ error: "Agent not available" }, 503);
 

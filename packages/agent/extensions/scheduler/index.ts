@@ -22,6 +22,7 @@ import cron from "node-cron";
 import { Database } from "bun:sqlite";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import "../../../shared/types.ts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -324,7 +325,7 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
           return;
         }
 
-        const manager = (globalThis as any).__majordomoManager;
+        const manager = globalThis.__majordomoManager;
         if (manager) {
           try {
             await manager.switchDomain(domainId);
