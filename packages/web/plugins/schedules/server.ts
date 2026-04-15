@@ -6,7 +6,6 @@ import type { WidgetPlugin } from "../../src/types.ts";
 import { Database } from "bun:sqlite";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import "../../../shared/types.ts";
 
 const HOME = process.env.HOME ?? "/root";
 const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");

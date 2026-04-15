@@ -5,11 +5,34 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import { readDomainsManifest } from "../../../shared/lib/domains";
 
 const HOME = process.env.HOME ?? "/root";
 const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");
 const MEMORY_ROOT = path.join(MAJORDOMO_STATE, "memory");
+
+// Inline minimal YAML domain parser — avoids shared module dep for plugin isolation
+function parseDomains(content: string): Domain[] {
+  const domains: Domain[] = [];
+  const lines = content.split("\n");
+  let current: Partial<Domain> | null = null;
+  for (const line of lines) {
+    const idMatch = line.match(/^\s*-\s+id:\s+(.+)$/);
+    if (idMatch) { if (current?.id) domains.push(current as Domain); current = { id: idMatch[1].trim() }; continue; }
+    if (!current) continue;
+    const pathMatch = line.match(/^\s+path:\s+(.+)$/); if (pathMatch) current.path = pathMatch[1].trim();
+    const statusMatch = line.match(/^\s+status:\s+(.+)$/); if (statusMatch) current.status = statusMatch[1].trim();
+  }
+  if (current?.id) domains.push(current as Domain);
+  return domains.filter(d => d.path && d.status !== "archived");
+}
+
+async function readDomainsManifest(memoryRoot: string): Promise<Domain[]> {
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const content = await readFile(require("node:path").join(memoryRoot, "domains.yml"), "utf-8");
+    return parseDomains(content);
+  } catch { return []; }
+}
 
 interface Domain {
   id: string;
