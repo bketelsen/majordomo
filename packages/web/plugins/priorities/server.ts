@@ -48,10 +48,10 @@ interface PriorityItem {
 }
 
 async function readDomains(): Promise<Domain[]> {
-  const manifest = await readDomainsManifest(MEMORY_ROOT);
-  return manifest.domains
-    .filter(d => d.path && d.status !== "archived")
-    .map(d => ({ id: d.id, path: d.path }));
+  try {
+    const content = await fs.readFile(path.join(MEMORY_ROOT, "domains.yml"), "utf-8");
+    return parseDomains(content);
+  } catch { return []; }
 }
 
 async function computePriorities(): Promise<PriorityItem[]> {
