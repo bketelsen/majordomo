@@ -933,6 +933,11 @@ function connectSSE() {
         if (data.domain === activeDomain) {
           const typing = document.getElementById('typing-indicator');
           if (typing) typing.remove();
+          // Follow-up token arriving without a pending send — initialize streaming state
+          if (!isStreaming) {
+            isStreaming = true;
+            setSendEnabled(false);
+          }
           updateStreamingMessage(data.delta);
         }
         break;
@@ -941,6 +946,10 @@ function connectSSE() {
         if (data.domain === activeDomain) {
           const typing2 = document.getElementById('typing-indicator');
           if (typing2) typing2.remove();
+          if (!isStreaming) {
+            isStreaming = true;
+            setSendEnabled(false);
+          }
           updateThinkingBlock(data.delta);
         }
         break;
