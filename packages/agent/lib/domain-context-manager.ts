@@ -9,6 +9,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
+import { watch, type FSWatcher } from "node:fs";
 import {
   createAgentSession,
   createEventBus,
@@ -24,7 +25,7 @@ import { cogMemoryExtensionFactory } from "../extensions/cog-memory/index.ts";
 import { domainManagerExtensionFactory } from "../extensions/domain-manager/index.ts";
 import { subagentManagerExtensionFactory } from "../extensions/subagent-manager/index.ts";
 import { schedulerExtensionFactory } from "../extensions/scheduler/index.ts";
-import { readDomainsManifest } from "../../shared/lib/domains.ts";
+import { readDomainsManifest, type DomainsManifest } from "../../shared/lib/domains.ts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,8 @@ export class DomainContextManager {
   private resolve?: (text: string) => void;
   private reject?: (err: Error) => void;
   private onToken?: (delta: string) => void;
+  private domainsCache?: { manifest: DomainsManifest; timestamp: number };
+  private domainsFileWatcher?: FSWatcher;
 
   constructor(private opts: DomainContextManagerOptions) {}
 
@@ -72,6 +75,13 @@ export class DomainContextManager {
     if (manifest.domains.length === 0) {
       throw new Error("No domains configured in memory/domains.yml");
     }
+
+    // Set up file watcher for domains.yml
+    this.setupDomainsFileWatcher();
+
+    // Listen for domain creation/archive events to invalidate cache
+    sharedEventBus.on("domain:created", () => this.invalidateDomainsCache());
+    sharedEventBus.on("domain:archived", () => this.invalidateDomainsCache());
 
     // Load persona template once; active domain is substituted per prompt
     const personaTemplate = await this.loadPersonaTemplate();
@@ -201,6 +211,7 @@ export class DomainContextManager {
 
   dispose(): void {
     this.session.dispose();
+    this.domainsFileWatcher?.close();
   }
 
   // ── Private: wire session events to resolve promises ──────────────────────
@@ -284,6 +295,46 @@ export class DomainContextManager {
   // ── Private: read domains manifest ────────────────────────────────────────
 
   private async readDomainsManifest() {
-    return readDomainsManifest(this.opts.memoryRoot);
+    // Check cache first
+    if (this.domainsCache) {
+      return this.domainsCache.manifest;
+    }
+
+    // Read from disk and cache
+    const manifest = await readDomainsManifest(this.opts.memoryRoot);
+    this.domainsCache = {
+      manifest,
+      timestamp: Date.now(),
+    };
+    return manifest;
+  }
+
+  // ── Private: setup file watcher for domains.yml ───────────────────────────
+
+  private setupDomainsFileWatcher(): void {
+    const domainsFile = path.join(this.opts.memoryRoot, "domains.yml");
+    
+    try {
+      this.domainsFileWatcher = watch(domainsFile, (eventType) => {
+        if (eventType === "change" || eventType === "rename") {
+          console.log("[manager] domains.yml changed, invalidating cache");
+          this.invalidateDomainsCache();
+        }
+      });
+      
+      this.domainsFileWatcher.on("error", (err) => {
+        console.warn("[manager] Error watching domains.yml:", err);
+      });
+      
+      console.log("[manager] Watching domains.yml for changes");
+    } catch (err) {
+      console.warn("[manager] Failed to set up domains.yml watcher:", err);
+    }
+  }
+
+  // ── Private: invalidate domains cache ─────────────────────────────────────
+
+  private invalidateDomainsCache(): void {
+    this.domainsCache = undefined;
   }
 }
