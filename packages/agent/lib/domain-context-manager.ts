@@ -26,6 +26,9 @@ import { domainManagerExtensionFactory } from "../extensions/domain-manager/inde
 import { subagentManagerExtensionFactory } from "../extensions/subagent-manager/index.ts";
 import { schedulerExtensionFactory } from "../extensions/scheduler/index.ts";
 import { readDomainsManifest, type DomainsManifest } from "../../shared/lib/domains.ts";
+import { createLogger } from "./logger.ts";
+
+const logger = createLogger({ context: { component: "domain-context-manager" } });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -68,7 +71,7 @@ export class DomainContextManager {
   // ── Initialize: create the single session with singleton extensions ──────
 
   async initialize(): Promise<void> {
-    console.log("[manager] Initializing single-session architecture...");
+    logger.info("Initializing single-session architecture");
 
     // Validate domains manifest exists
     const manifest = await this.readDomainsManifest();
@@ -141,13 +144,13 @@ export class DomainContextManager {
     });
 
     if (modelFallbackMessage) {
-      console.warn(`[manager] Model fallback: ${modelFallbackMessage}`);
+      logger.warn("Model fallback occurred", { message: modelFallbackMessage });
     }
 
     this.session = session;
     this.wireEvents();
 
-    console.log(`[manager] Single session initialized (active domain: ${this.activeDomain})`);
+    logger.info("Single session initialized", { activeDomain: this.activeDomain });
   }
 
   // ── Switch domain ─────────────────────────────────────────────────────────
@@ -165,7 +168,7 @@ export class DomainContextManager {
       );
     }
 
-    console.log(`[manager] Switching domain: ${this.activeDomain} → ${domainId}`);
+    logger.info("Switching domain", { from: this.activeDomain, to: domainId });
     this.activeDomain = domainId;
 
     // Emit event for web UI
@@ -284,7 +287,7 @@ export class DomainContextManager {
     try {
       return await fs.readFile(this.opts.personaFile, "utf-8");
     } catch (err) {
-      console.debug('[domain-context] Persona file not found, using default template:', err);
+      logger.debug("Persona file not found, using default template", { error: err });
       return "You are Majordomo, a personal AI chief-of-staff.\nActive domain: {{ACTIVE_DOMAIN}}";
     }
   }
@@ -318,18 +321,18 @@ export class DomainContextManager {
     try {
       this.domainsFileWatcher = watch(domainsFile, (eventType) => {
         if (eventType === "change" || eventType === "rename") {
-          console.log("[manager] domains.yml changed, invalidating cache");
+          logger.info("domains.yml changed, invalidating cache");
           this.invalidateDomainsCache();
         }
       });
       
       this.domainsFileWatcher.on("error", (err) => {
-        console.warn("[manager] Error watching domains.yml:", err);
+        logger.warn("Error watching domains.yml", { error: err });
       });
       
-      console.log("[manager] Watching domains.yml for changes");
+      logger.info("Watching domains.yml for changes");
     } catch (err) {
-      console.warn("[manager] Failed to set up domains.yml watcher:", err);
+      logger.warn("Failed to set up domains.yml watcher", { error: err });
     }
   }
 

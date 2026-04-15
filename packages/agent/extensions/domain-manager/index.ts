@@ -15,7 +15,10 @@ import { loadYamlFile } from "../../../shared/lib/yaml-helpers";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type CogDomain, type DomainsManifest, readDomainsManifest } from "../../../shared/lib/domains.ts";
+import { createLogger } from "../../lib/logger.ts";
 import "../../../shared/types.ts";
+
+const logger = createLogger({ context: { component: "domain-manager" } });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -94,7 +97,7 @@ async function generateDomainCommand(
   try {
     template = await fs.readFile(templatePath, "utf-8");
   } catch (err) {
-    console.warn(`[domain-manager] Template not found at ${templatePath}, skipping command generation:`, err);
+    logger.warn("Template not found, skipping command generation", { templatePath, error: err });
     return;
   }
 
@@ -115,7 +118,7 @@ async function generateDomainCommand(
 
   await fs.mkdir(path.dirname(commandPath), { recursive: true });
   await fs.writeFile(commandPath, rendered, "utf-8");
-  console.log(`[domain-manager] Generated .claude/commands/${commandId}.md`);
+  logger.info("Generated .claude/commands file", { file: `${commandId}.md` });
 }
 
 async function removeDomainCommand(domainId: string, projectRoot: string): Promise<void> {
@@ -123,9 +126,9 @@ async function removeDomainCommand(domainId: string, projectRoot: string): Promi
   const commandPath = path.join(projectRoot, ".claude", "commands", `${commandId}.md`);
   try {
     await fs.unlink(commandPath);
-    console.log(`[domain-manager] Removed .claude/commands/${commandId}.md`);
+    logger.info("Removed .claude/commands file", { file: `${commandId}.md` });
   } catch (err) {
-    console.debug(`[domain-manager] Command file didn't exist:`, commandPath, err);
+    logger.debug("Command file didn't exist", { commandPath, error: err });
   }
 }
 
@@ -435,7 +438,7 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
           await fs.mkdir(path.dirname(sessionDst), { recursive: true });
           await fs.rename(sessionSrc, sessionDst);
         } catch (err) {
-          console.debug('[domain-manager] Session dir may not exist:', sessionSrc, err);
+          logger.debug("Session dir may not exist", { sessionSrc, error: err });
         }
 
         // Remove generated command file

@@ -20,7 +20,10 @@ import { TelegramBot } from "./lib/telegram-bot.ts";
 import { runPersonaWizardIfNeeded } from "./lib/persona-wizard.ts";
 import { app as webApp, PORT as WEB_PORT, webEvents } from "../web/src/server.ts";
 import { isCompiledBinary, defaultAgents, defaultWorkflows, personaContent } from "../web/src/assets.ts";
+import { createLogger } from "./lib/logger.ts";
 import "../shared/types.ts";
+
+const logger = createLogger({ context: { component: "service" } });
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -52,7 +55,7 @@ const resolveConfigDir = async (userDir: string, defaultDir: string): Promise<st
     await fs.access(userDir);
     return userDir;  // User config exists, use it
   } catch (err) {
-    console.debug('[service] User config dir not accessible, using default:', userDir, err);
+    logger.debug("User config dir not accessible, using default", { userDir, error: err });
     return defaultDir;  // Fall back to default
   }
 };
@@ -119,7 +122,7 @@ const resolvedPaths = {
 for (const p of [MEMORY_ROOT, path.join(MEMORY_ROOT, "domains.yml")]) {
   const exists = await fs.access(p).then(() => true).catch(() => false);
   if (!exists) {
-    console.error(`❌  Not found: ${p}\nRun: bun packages/agent/scripts/bootstrap.ts`);
+    logger.error("Required path not found", { path: p, message: "Run: bun packages/agent/scripts/bootstrap.ts" });
     process.exit(1);
   }
 }
@@ -127,10 +130,7 @@ for (const p of [MEMORY_ROOT, path.join(MEMORY_ROOT, "domains.yml")]) {
 // ── Domain context manager ───────────────────────────────────────────────────
 
 console.log("\n🏛  Majordomo Service starting...\n");
-console.log("[service] Resolved startup paths:");
-for (const [key, value] of Object.entries(resolvedPaths)) {
-  console.log(`   ${key}: ${value}`);
-}
+logger.info("Resolved startup paths", resolvedPaths);
 console.log("");
 
 const manager = new DomainContextManager({
@@ -167,7 +167,7 @@ sharedEventBus.on("workflow:complete", (data: unknown) => webEvents.emit("workfl
 // ── Web server (in-process) ───────────────────────────────────────────────────
 
 serve({ fetch: webApp.fetch, port: WEB_PORT }, (info) => {
-  console.log(`[web] Dashboard listening on http://localhost:${info.port}`);
+  logger.info("Dashboard listening", { url: `http://localhost:${info.port}` });
 });
 
 // ── Telegram bot (optional) ───────────────────────────────────────────────────
@@ -181,8 +181,8 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   });
   await telegram.start();
 } else {
-  console.log("[service] TELEGRAM_BOT_TOKEN not set — running without Telegram");
-  console.log("[service] Set it in .env or environment to enable Telegram integration");
+  logger.info("TELEGRAM_BOT_TOKEN not set — running without Telegram");
+  logger.info("Set it in .env or environment to enable Telegram integration");
 }
 
 console.log("\n✅  Majordomo Service ready\n");
@@ -199,20 +199,20 @@ runPersonaWizardIfNeeded(MAJORDOMO_STATE, async (text) => {
   await manager.switchDomain("general");
   return manager.sendMessage(text);
 }).catch(err =>
-  console.warn("[wizard] Error:", err)
+  logger.warn("Persona wizard error", { error: err })
 );
 
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
 
 const shutdown = async (signal: string) => {
-  console.log(`\n[service] Received ${signal}, shutting down...`);
+  logger.info("Shutting down", { signal });
   try {
     await telegram?.stop();
     manager.dispose();
-    console.log("[service] Shutdown complete");
+    logger.info("Shutdown complete");
     process.exit(0);
   } catch (err) {
-    console.error("[service] Error during shutdown:", err);
+    logger.error("Error during shutdown", { error: err });
     process.exit(1);
   }
 };

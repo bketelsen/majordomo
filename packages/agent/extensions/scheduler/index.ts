@@ -22,7 +22,10 @@ import cron from "node-cron";
 import { Database } from "bun:sqlite";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { createLogger } from "../../lib/logger.ts";
 import "../../../shared/types.ts";
+
+const logger = createLogger({ context: { component: "scheduler" } });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -120,24 +123,24 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
         startJob(job);
       }
 
-      console.log(`[scheduler] Started ${activeTasks.size} job(s)`);
+      logger.info("Started scheduled jobs", { count: activeTasks.size });
     };
 
     const startJob = (job: ScheduledJob) => {
       if (activeTasks.has(job.id)) return;
 
       if (!cron.validate(job.cron)) {
-        console.warn(`[scheduler] Invalid cron expression for job '${job.id}': ${job.cron}`);
+        logger.warn("Invalid cron expression for job", { jobId: job.id, cron: job.cron });
         return;
       }
 
       const task = cron.schedule(job.cron, async () => {
-        console.log(`[scheduler] Running job '${job.id}'`);
+        logger.info("Running scheduled job", { jobId: job.id });
         try {
           await executeJob(job);
           db.prepare("INSERT INTO runs (job_id, ran_at, success) VALUES (?, datetime('now'), 1)").run(job.id);
         } catch (err) {
-          console.error(`[scheduler] Job '${job.id}' failed:`, err);
+          logger.error("Scheduled job failed", { jobId: job.id, error: err });
           db.prepare("INSERT INTO runs (job_id, ran_at, success, error) VALUES (?, datetime('now'), 0, ?)").run(job.id, String(err));
         }
       }, { timezone: process.env.TZ ?? "America/New_York" });
@@ -166,7 +169,7 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
               { deliverAs: "followUp" }
             );
           } catch (err) {
-            console.debug('[scheduler] Skill file not found, using plain command:', skillFile, err);
+            logger.debug("Skill file not found, using plain command", { skillFile, error: err });
             pi.sendUserMessage(`Run COG skill: ${cmd}`, { deliverAs: "followUp" });
           }
         } else {
@@ -319,7 +322,7 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
       try {
         skillInstructions = await fs.readFile(skillFile, "utf-8");
       } catch (err) {
-        console.debug('[scheduler] Skill file not found:', skillFile, err);
+        logger.debug("Skill file not found", { skillFile, error: err });
         ctx.ui.notify(`Skill file .claude/commands/${skill}.md not found`, "error");
         return;
       }
@@ -376,7 +379,7 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
             ctx.ui.notify(`Failed to switch domain: ${err}`, "error");
           }
         } else {
-          console.log(`[switch] Intent logged: switch to domain '${domainId}' (manager not wired yet)`);
+          logger.info("Intent logged: switch to domain (manager not wired yet)", { domainId });
           ctx.ui.notify(
             `Domain switch intent logged: ${domainId} (DomainContextManager not wired yet)`,
             "info"

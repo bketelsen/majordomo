@@ -25,6 +25,9 @@ import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding
 import { Type } from "@sinclair/typebox";
 import { readDomainsManifest } from "../../../shared/lib/domains";
 import { loadYamlFile } from "../../../shared/lib/yaml-helpers";
+import { createLogger } from "../../lib/logger.ts";
+
+const logger = createLogger({ context: { component: "subagent-manager" } });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -108,7 +111,7 @@ async function loadAgents(agentsDir: string): Promise<AgentDefinition[]> {
   try {
     files = await fs.readdir(agentsDir);
   } catch (err) {
-    console.debug('[subagent] Agents directory not found:', agentsDir, err);
+    logger.debug("Agents directory not found", { agentsDir, error: err });
     return agents;
   }
 
@@ -119,7 +122,7 @@ async function loadAgents(agentsDir: string): Promise<AgentDefinition[]> {
       const agent = parseAgentFile(content);
       if (agent) agents.push(agent);
     } catch (err) {
-      console.warn(`[subagent] Failed to load agent ${file}:`, err);
+      logger.warn("Failed to load agent file", { file, error: err });
     }
   }
 
@@ -149,7 +152,7 @@ function parseAgentFile(content: string): AgentDefinition | null {
       systemPrompt,
     };
   } catch (err) {
-    console.debug('[subagent] Failed to parse agent definition:', content.slice(0, 100), err);
+    logger.debug("Failed to parse agent definition", { preview: content.slice(0, 100), error: err });
     return null;
   }
 }
@@ -179,7 +182,7 @@ function openRunsDb(dataRoot: string): Database {  const db = new Database(path.
   `);
   // Add stderr column idempotently (ALTER TABLE throws if column exists in SQLite)
   try { db.exec(`ALTER TABLE runs ADD COLUMN stderr TEXT`); } catch (err) {
-    console.debug('[subagent] stderr column already exists in runs table:', err);
+    logger.debug("stderr column already exists in runs table", { error: err });
   }
 
   // Create workflow_steps table
@@ -214,7 +217,7 @@ function openRunsDb(dataRoot: string): Database {  const db = new Database(path.
     "UPDATE runs SET status = 'failed', error = 'Orphaned: service restarted before completion', finished_at = ? WHERE status = 'running'"
   ).run(Date.now());
   if ((orphaned.changes as number) > 0) {
-    console.log(`[subagent] Marked ${orphaned.changes} orphaned run(s) as failed`);
+    logger.info("Marked orphaned runs as failed", { count: orphaned.changes });
   }
   
   // Mark orphaned workflow steps as failed
@@ -222,7 +225,7 @@ function openRunsDb(dataRoot: string): Database {  const db = new Database(path.
     "UPDATE workflow_steps SET status = 'failed', error = 'Orphaned: service restarted', finished_at = ? WHERE status IN ('pending', 'running')"
   ).run(Date.now());
   if ((orphanedSteps.changes as number) > 0) {
-    console.log(`[subagent] Marked ${orphanedSteps.changes} orphaned workflow step(s) as failed`);
+    logger.info("Marked orphaned workflow steps as failed", { count: orphanedSteps.changes });
   }
 
   // Clean up old completed workflow steps (>30 days)
@@ -231,7 +234,7 @@ function openRunsDb(dataRoot: string): Database {  const db = new Database(path.
     "DELETE FROM workflow_steps WHERE created_at < ? AND status IN ('done', 'failed', 'skipped')"
   ).run(thirtyDaysAgo);
   if ((cleanedSteps.changes as number) > 0) {
-    console.log(`[subagent] Cleaned up ${cleanedSteps.changes} old workflow step(s) older than 30 days`);
+    logger.info("Cleaned up old workflow steps", { count: cleanedSteps.changes, olderThan: "30 days" });
   }
 
   return db;
@@ -377,7 +380,7 @@ function getPiCommand(): { cmd: string; args: string[] } {
   ];
   for (const p of candidates) {
     try { require("fs").accessSync(p); return { cmd: p, args: [] }; } catch (err) {
-      console.debug('[subagent] Pi binary not found at:', p, err);
+      logger.debug("Pi binary not found at candidate path", { path: p, error: err });
     }
   }
 
@@ -459,7 +462,7 @@ async function spawnAgent(
             if (textParts.length) finalText = textParts.join("");
           }
         } catch (err) {
-          console.debug('[subagent] Failed to parse JSON event from pi output:', line.slice(0, 50), err);
+          logger.debug("Failed to parse JSON event from pi output", { preview: line.slice(0, 50), error: err });
         }
       }
 
@@ -534,7 +537,7 @@ function resolveTemplate(
           ? JSON.stringify(val)
           : String(val ?? "");
       } catch (err) {
-        console.debug('[subagent] Failed to parse JSON output:', jsonStr.slice(0, 100), err);
+        logger.debug("Failed to parse JSON output", { preview: jsonStr.slice(0, 100), error: err });
         return String(raw);
       }
     }
@@ -592,7 +595,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
       const domainEntry = manifest.domains.find(d => d.id === getDomain());
       if (domainEntry?.workingDir) domainWorkingDir = domainEntry.workingDir;
     } catch (err) {
-      console.debug('[subagent] Failed to load domains manifest for workingDir:', err);
+      logger.debug("Failed to load domains manifest for workingDir", { error: err });
       // fallback to scratchDir
     }
 
@@ -601,10 +604,11 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
       try {
         await fs.access(domainWorkingDir, fs.constants.R_OK | fs.constants.W_OK);
       } catch (err) {
-        console.warn(
-          `[subagent] Configured workingDir '${domainWorkingDir}' is not accessible or does not exist. ` +
-          `Falling back to scratchDir: ${scratchDir}`
-        );
+        logger.warn("Configured workingDir not accessible, falling back to scratchDir", { 
+          workingDir: domainWorkingDir, 
+          scratchDir,
+          error: err 
+        });
         domainWorkingDir = scratchDir;
       }
     }
@@ -612,9 +616,9 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
     // Load agent definitions eagerly at extension init — factory supports async
     const agentRegistry = await loadAgents(agentsDir);
     if (agentRegistry.length === 0) {
-      console.warn(`[subagent] No agent definitions found in ${agentsDir}`);
+      logger.warn("No agent definitions found", { agentsDir });
     } else {
-      console.log(`[subagent] Loaded ${agentRegistry.length} agent(s): ${agentRegistry.map(a => a.name).join(", ")}`);
+      logger.info("Loaded agents", { count: agentRegistry.length, agents: agentRegistry.map(a => a.name).join(", ") });
     }
 
     // ── spawn_subagent tool ──────────────────────────────────────────────────
@@ -698,7 +702,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
 
                 pi.events.emit("subagent:failed", { id: run.id, agent: params.agent, error });
               } else {
-                console.log(`[subagent] Run ${run.id} failed, retrying (${attempt}/${maxRetries})...`);
+                logger.info("Subagent run failed, retrying", { runId: run.id, attempt, maxRetries });
                 await new Promise(r => setTimeout(r, 2000 * attempt)); // backoff
               }
             }
@@ -832,7 +836,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
           const content = await fs.readFile(workflowFile, "utf-8");
           workflowDef = yaml.load(content) as typeof workflowDef;
         } catch (err) {
-          console.debug('[subagent] Workflow file not found:', params.workflow, err);
+          logger.debug("Workflow file not found", { workflow: params.workflow, error: err });
           return {
             content: [{ type: "text", text: `❌ Workflow '${params.workflow}' not found in workflows/` }],
             details: { workflow: params.workflow, found: false },

@@ -20,6 +20,9 @@ import * as fs from "node:fs/promises";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, type AgentToolResult, withFileMutationQueue } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { createLogger } from "../../lib/logger.ts";
+
+const logger = createLogger({ context: { component: "cog-memory" } });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -93,7 +96,7 @@ async function readMemoryFile(memoryRoot: string, relPath: string): Promise<stri
     const content = await fs.readFile(path.join(memoryRoot, relPath), "utf-8");
     return content.trim() || null;
   } catch (err) {
-    console.debug('[cog] Skipping unreadable memory file:', relPath, err);
+    logger.debug("Skipping unreadable memory file", { relPath, error: err });
     return null;
   }
 }
@@ -107,7 +110,7 @@ async function readMemoryFileIfToday(memoryRoot: string, relPath: string): Promi
     const content = await fs.readFile(fullPath, "utf-8");
     return content.trim() || null;
   } catch (err) {
-    console.debug('[cog] Skipping memory file (not found or not today):', relPath, err);
+    logger.debug("Skipping memory file (not found or not today)", { relPath, error: err });
     return null;
   }
 }
@@ -131,11 +134,11 @@ async function scanL0(memoryRoot: string, domain: string): Promise<L0Entry[]> {
           });
         }
       } catch (err) {
-        console.debug('[cog] Skipping unreadable L0 file:', path.join(domain, entry.name), err);
+        logger.debug("Skipping unreadable L0 file", { file: path.join(domain, entry.name), error: err });
       }
     }
   } catch (err) {
-    console.debug('[cog] Domain directory does not exist yet:', domain, err);
+    logger.debug("Domain directory does not exist yet", { domain, error: err });
   }
   return results;
 }
@@ -560,7 +563,7 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
         return withFileMutationQueue(filePath, async () => {
           let existing = "";
           try { existing = await fs.readFile(filePath, "utf-8"); } catch (err) {
-            console.debug('[cog] New observations file, creating:', filePath, err);
+            logger.debug("New observations file, creating", { filePath, error: err });
           }
 
           if (!existing) {
@@ -607,7 +610,7 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
         return withFileMutationQueue(filePath, async () => {
           let content = "";
           try { content = await fs.readFile(filePath, "utf-8"); } catch (err) {
-            console.debug('[cog] New action-items file, creating:', filePath, err);
+            logger.debug("New action-items file, creating", { filePath, error: err });
           }
 
           if (!content) {
