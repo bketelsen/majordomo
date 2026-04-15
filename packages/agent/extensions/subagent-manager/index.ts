@@ -575,6 +575,19 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
       // fallback to scratchDir
     }
 
+    // Validate domainWorkingDir exists and is accessible
+    if (domainWorkingDir !== scratchDir) {
+      try {
+        await fs.access(domainWorkingDir, fs.constants.R_OK | fs.constants.W_OK);
+      } catch (err) {
+        console.warn(
+          `[subagent] Configured workingDir '${domainWorkingDir}' is not accessible or does not exist. ` +
+          `Falling back to scratchDir: ${scratchDir}`
+        );
+        domainWorkingDir = scratchDir;
+      }
+    }
+
     // Load agent definitions eagerly at extension init — factory supports async
     const agentRegistry = await loadAgents(agentsDir);
     if (agentRegistry.length === 0) {
