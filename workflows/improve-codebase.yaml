@@ -13,4 +13,4 @@ steps:
     agent: developer
     depends_on: identify
     input:
-      task: "{{steps.identify.output}}"
+      task: "Implement the following code improvements in the repository. Make the actual code changes — do not write documentation or plans. For each improvement: read the relevant files, make the changes, verify with bun x tsc --noEmit if TypeScript. Commit each improvement separately with a descriptive message. Here are the improvements to implement:\n\n{{steps.identify.output}}"
