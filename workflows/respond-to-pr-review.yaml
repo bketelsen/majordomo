@@ -1,0 +1,36 @@
+name: respond-to-pr-review
+description: Address review comments on an open pull request and push updated changes
+
+steps:
+  - id: analyze_review
+    agent: researcher
+    input:
+      query: "Analyze the review comments on this pull request and understand what changes are requested: {{workflow.input.pr_url}}"
+      context: "Repository: {{workflow.input.repo_path}}. Use gh CLI to fetch the PR, its diff, and all review comments. Summarize each requested change clearly."
+      depth: shallow
+
+  - id: address_comments
+    agent: developer
+    depends_on: analyze_review
+    input:
+      task: |
+        Address all review comments on this pull request.
+
+        PR URL: {{workflow.input.pr_url}}
+        Repository: {{workflow.input.repo_path}}
+
+        Review analysis:
+        {{steps.analyze_review.output}}
+
+        Instructions:
+        - Check out the PR branch
+        - Address each review comment with focused code changes
+        - Do NOT make changes beyond what reviewers requested
+        - Run the project's tests after making changes
+        - Commit the changes with message: "Address review feedback"
+        - Push to the PR branch
+        - Use gh CLI to reply to review comments noting what was addressed
+        - Do NOT re-request review — the reviewer will see the push
+
+on_complete:
+  notify: true

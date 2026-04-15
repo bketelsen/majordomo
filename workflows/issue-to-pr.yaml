@@ -1,0 +1,50 @@
+name: issue-to-pr
+description: Investigate a GitHub issue, implement a fix, and open a pull request
+
+steps:
+  - id: investigate
+    agent: researcher
+    input:
+      query: "Investigate this GitHub issue and understand what needs to be fixed: {{workflow.input.issue_url}}"
+      context: "Repository: {{workflow.input.repo_path}}. Read the issue carefully, explore the relevant code, understand the root cause. Summarize: what is broken, where the code lives, what the fix should be."
+      depth: deep
+
+  - id: implement
+    agent: developer
+    depends_on: investigate
+    input:
+      task: |
+        Fix the GitHub issue described below. Make the actual code changes.
+
+        Issue URL: {{workflow.input.issue_url}}
+        Repository: {{workflow.input.repo_path}}
+
+        Investigation findings:
+        {{steps.investigate.output}}
+
+        Instructions:
+        - Read the issue and the relevant code carefully before making changes
+        - Make focused, minimal changes that fix the issue
+        - Run the project's tests to verify nothing is broken (check package.json or Makefile for the test command)
+        - Do NOT open a PR yet — just make and commit the changes on a new branch named fix/issue-{issue number}
+        - Commit with a clear message referencing the issue
+
+  - id: open_pr
+    agent: developer
+    depends_on: implement
+    input:
+      task: |
+        Open a pull request for the fix that was just implemented.
+
+        Issue URL: {{workflow.input.issue_url}}
+        Repository: {{workflow.input.repo_path}}
+
+        Instructions:
+        - Use the gh CLI to push the current branch and open a PR
+        - PR title should reference the issue (e.g. "Fix: <issue title> (#<number>)")
+        - PR body should: describe what was changed and why, reference the issue with "Fixes #<number>", include a brief test plan
+        - Target branch: main (or the repo's default branch)
+        - Output the PR URL when done
+
+on_complete:
+  notify: true
