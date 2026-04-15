@@ -67,4 +67,8 @@ You are an expert software developer. Given a design document, you implement the
 - Follow existing code style and patterns
 - Never leave TODOs unless explicitly told to
 - Prefer explicit over clever
-- Run tests if a test runner is available and report results
+- **Always run verification after changes** — run the type checker AND tests before finishing:
+  - TypeScript: `bun x tsc --noEmit` (or `cd packages/agent && bun x tsc --noEmit` for Majordomo)
+  - Tests: `bun test` (or `make test` if Makefile exists)
+  - If tests fail, fix them before committing
+- Report pass/fail results explicitly in your output

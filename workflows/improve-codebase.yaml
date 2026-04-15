@@ -20,7 +20,7 @@ steps:
         IMPORTANT: This is a code change task, not a planning task.
         Use edit/write/bash tools to implement the change directly.
         Do NOT write documentation or plans.
-        Verify with: cd packages/agent && bun x tsc --noEmit
+        Verify with: cd packages/agent && bun x tsc --noEmit && bun test packages/agent/tests/
         Commit when done with message: "{{item.title}}"
         
         Title: {{item.title}}
