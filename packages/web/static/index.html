@@ -163,15 +163,6 @@
     .schedule-cron { font-size: 10px; color: var(--accent); font-family: var(--font-mono); }
     .schedule-last { font-size: 10px; color: var(--text-dim); margin-left: auto; }
 
-    /* Email widget */
-    .email-item { padding: 5px 0; border-bottom: 1px solid var(--border); }
-    .email-item:last-child { border-bottom: none; }
-    .email-subject { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .email-subject.unread { font-weight: 600; }
-    .email-meta { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
-    .email-from { font-size: 11px; color: var(--text-dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .email-date { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
-    .email-unread-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 
     /* Empty state */
     .empty { color: var(--text-dim); font-size: 13px; padding: 8px 0; text-align: center; }
@@ -390,19 +381,6 @@
       </div>
     </div>
 
-    <div class="widget" id="widget-email">
-      <div class="widget-header" onclick="toggleWidget('widget-email')">
-        <span>📬 Recent Email</span>
-        <span style="display:flex;align-items:center;gap:6px">
-          <span id="email-updated" style="font-size:10px;font-weight:400"></span>
-          <span class="refresh-btn" onclick="refreshWidget(event, 'email')" title="Refresh email">↻</span>
-          <span class="widget-toggle">▾</span>
-        </span>
-      </div>
-      <div class="widget-body" id="widget-email-body">
-        <div class="empty">Loading…</div>
-      </div>
-    </div>
 
     <div class="widget" id="widget-domains">
       <div class="widget-header" onclick="toggleWidget('widget-domains')">
@@ -431,7 +409,13 @@
     </div>
     <div class="field">
       <label>Type</label>
-      <input type="text" id="nd-type" value="custom" placeholder="personal, work, project, custom" />
+      <select id="nd-type" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;font-family:var(--font)">
+        <option value="project">project</option>
+        <option value="work">work</option>
+        <option value="personal">personal</option>
+        <option value="general">general</option>
+        <option value="system">system</option>
+      </select>
     </div>
     <div class="field">
       <label>Trigger keywords (comma-separated)</label>
@@ -470,12 +454,10 @@ async function init() {
   loadWidget('containers');
   loadWidget('subagents');
   loadWidget('schedules');
-  loadWidget('email');
   setInterval(() => loadWidget('priorities'), 60000);
   setInterval(() => loadWidget('containers'), 30000);
   setInterval(() => loadWidget('subagents'),  10000);
   setInterval(() => loadWidget('schedules'),  30000);
-  setInterval(() => loadWidget('email'),      300000); // 5 min
   setupInput();
 }
 
@@ -1197,44 +1179,6 @@ async function triggerSchedule(jobId) {
   }
 }
 
-function renderEmailWidget(data) {
-  const body = document.getElementById('widget-email-body');
-  const updated = document.getElementById('email-updated');
-  if (data?.updatedAt) updated.textContent = new Date(data.updatedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-
-  if (!data?.configured) {
-    body.innerHTML = '<div class="empty" style="font-size:11px">Set IMAP_HOST, IMAP_USER, IMAP_PASSWORD<br>in .env to enable</div>';
-    return;
-  }
-
-  const msgs = data?.messages ?? [];
-  if (msgs.length === 0) {
-    body.innerHTML = '<div class="empty">No recent email</div>'; return;
-  }
-
-  body.innerHTML = msgs.slice(0, 8).map(m => {
-    const unread = !m.read;
-    const dot = unread ? '<span class="email-unread-dot"></span>' : '';
-    const markBtn = unread
-      ? `<button class="action-btn" onclick="markEmailRead(${m.uid})" title="Mark read">&#10003;</button>`
-      : '';
-    return `
-      <div class="email-item">
-        <div class="email-subject ${unread ? 'unread' : ''}">${escapeHtml(m.subject)}</div>
-        <div class="email-meta">
-          ${dot}
-          <span class="email-from">${escapeHtml(m.from)}</span>
-          <span class="email-date">${escapeHtml(m.date)}</span>
-          ${markBtn}
-        </div>
-      </div>`;
-  }).join('');
-}
-
-async function markEmailRead(uid) {
-  await fetch(`/api/email/${uid}/read`, { method: 'POST' }).catch(() => null);
-  setTimeout(() => loadWidget('email'), 500);
-}
 
 function renderDomainWidget() {
   const body = document.getElementById('widget-domains-body');

@@ -29,7 +29,6 @@ import yaml from "js-yaml";
 import { Database } from "bun:sqlite";
 import { listAllContainers, dockerAction, incusAction } from "./lib/containers.ts";
 
-import { fetchRecentEmails, markEmailRead } from "./lib/email.ts";
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
 import { indexHTML, isCompiledBinary, manifest, serviceWorker, appleTouchIcon } from "./assets.ts";
 
@@ -350,7 +349,6 @@ async function getWidgetData(name: string): Promise<unknown> {
   // Fallback to legacy widgets
   switch (name) {
     case "containers":  return await computeContainersWidget();
-    case "email":       return await computeEmailWidget();
     default: {
       // Try file cache for unknown widget names
       const cachePath = path.join(DATA_ROOT, "widgets", `${name}.json`);
@@ -374,11 +372,6 @@ async function computeContainersWidget(): Promise<unknown> {
 
 
 
-
-async function computeEmailWidget(): Promise<unknown> {
-  const { messages, configured } = await fetchRecentEmails();
-  return { messages, configured, updatedAt: Date.now() };
-}
 
 // ── Hono app ───────────────────────────────────────────────────────────────────
 
@@ -505,13 +498,6 @@ app.post("/api/containers/:runtime/:id/:action", async (c) => {
 // POST /api/schedules/:id/trigger moved to schedules plugin
 
 
-
-// Mark an email as read
-app.post("/api/email/:uid/read", async (c) => {
-  const uid = parseInt(c.req.param("uid"));
-  const ok = await markEmailRead(uid);
-  return c.json({ ok });
-});
 
 // Inbound webhook — triggers a registered scheduler job by its webhook secret
 // Register a webhook job via: register_schedule tool with action_type="agent_prompt"
