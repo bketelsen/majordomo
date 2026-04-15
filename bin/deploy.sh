@@ -91,6 +91,10 @@ if [[ "${MAJORDOMO_COMPILE:-0}" == "1" ]]; then
 }
 PKGJSON
 
+  # Copy COG skill files for cog pipeline commands
+  mkdir -p "$MAJORDOMO_HOME/current/.claude/commands"
+  cp -r "$REPO_ROOT/.claude/commands/"* "$MAJORDOMO_HOME/current/.claude/commands/"
+
   # Copy plugins to external state dir — compiled binary can't load from /$bunfs/
   log "Copying plugins to $MAJORDOMO_STATE/plugins..."
   mkdir -p "$MAJORDOMO_STATE/plugins"

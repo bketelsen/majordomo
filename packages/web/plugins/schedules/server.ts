@@ -56,7 +56,9 @@ export const plugin: WidgetPlugin = {
           msg = data.message;
         }
 
-        manager.sendMessage(msg).catch(() => {});
+        manager.sendMessage(msg).catch((err) => {
+          console.error("[schedules] trigger sendMessage failed:", err);
+        });
         return c.json({ triggered: true, job: jobId });
       } catch (err) {
         console.error("[schedules] Failed to trigger job:", err);
