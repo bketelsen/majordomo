@@ -354,23 +354,32 @@ function resolveTemplate(
   resolved = resolved.replace(/\{\{workflow\.input\.(\w+)\}\}/g, (_: string, k: string) =>
     String(workflowInput[k] ?? ""));
 
-  // {{steps.id.output.field}}
+  // {{steps.id.output.field}} — for iterate_over, returns raw parsed value
   resolved = resolved.replace(/\{\{steps\.(\w+)\.output\.(\w+)\}\}/g, (_: string, stepId: string, field: string) => {
     const raw = stepOutputs[stepId];
     if (raw === undefined || raw === null) return "";
     
     // If it's already an object, access the field directly
-    if (typeof raw === 'object' && field in raw) {
-      return String((raw as Record<string, unknown>)[field] ?? "");
+    if (typeof raw === 'object' && field in (raw as Record<string, unknown>)) {
+      const val = (raw as Record<string, unknown>)[field];
+      return Array.isArray(val) || (typeof val === 'object' && val !== null)
+        ? JSON.stringify(val)
+        : String(val ?? "");
     }
     
     // Otherwise try to parse as JSON
     if (typeof raw === 'string') {
+      // Strip markdown fences
+      const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+      const jsonStr = fenceMatch ? fenceMatch[1].trim() : raw;
       try {
-        const parsed = JSON.parse(raw);
-        return String(parsed[field] ?? "");
+        const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+        const val = parsed[field];
+        return Array.isArray(val) || (typeof val === 'object' && val !== null)
+          ? JSON.stringify(val)
+          : String(val ?? "");
       } catch {
-        return String(raw); // fallback: whole output
+        return String(raw);
       }
     }
     
@@ -689,7 +698,11 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
               
               // Try to parse as JSON array if it's a string
               try {
-                iterationArray = typeof resolved === 'string' ? JSON.parse(resolved) : resolved;
+                let toParse = typeof resolved === 'string' ? resolved : JSON.stringify(resolved);
+                // Strip markdown code fences if present (e.g. ```json ... ```)
+                const fenceMatch = toParse.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (fenceMatch) toParse = fenceMatch[1].trim();
+                iterationArray = typeof resolved === 'string' ? JSON.parse(toParse) : resolved;
                 if (!Array.isArray(iterationArray)) {
                   pi.sendUserMessage(
                     `❌ Workflow **${params.workflow}** step **${step.id}**: iterate_over did not resolve to an array`,
