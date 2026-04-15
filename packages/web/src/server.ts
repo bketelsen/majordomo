@@ -973,8 +973,9 @@ const websocketHandler = {
     const socketId = ++socketIdCounter;
     terminalSockets.set(socketId, ws);
 
-    // Spawn bash shell with PTY-like environment
-    const shell = Bun.spawn(['bash', '-l'], {
+    // Spawn bash via python3 pty.spawn — creates a real PTY so bash shows prompts
+    // Bun.spawn alone doesn't allocate a PTY, so bash runs non-interactively without one
+    const shell = Bun.spawn(['python3', '-c', 'import pty,os; os.environ["TERM"]="xterm-256color"; pty.spawn(["/bin/bash","-l"])'], {
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe',
