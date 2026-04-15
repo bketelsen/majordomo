@@ -123,6 +123,7 @@ export class DomainContextManager {
           dataRoot: this.opts.dataRoot,
           agentsDir: this.opts.agentsDir,
           workflowsDir: this.opts.workflowsDir,
+          getDomain: () => this.getDomain(),
         }),
       ],
     });

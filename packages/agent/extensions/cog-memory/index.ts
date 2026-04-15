@@ -27,9 +27,8 @@ const logger = createLogger({ context: { component: "cog-memory" } });
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface CogMemoryOptions {
-  domain?: string;           // Deprecated: use getDomain instead
   memoryRoot: string;
-  getDomain?: () => string;  // Dynamic domain accessor
+  getDomain: () => string;  // Dynamic domain accessor
 }
 
 interface L0Entry {
@@ -271,9 +270,7 @@ function parseGlacierIndex(content: string): GlacierEntry[] {
 
 export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
   return (pi: ExtensionAPI) => {
-    const { memoryRoot } = opts;
-    // Resolve domain: getDomain accessor takes precedence over static domain
-    const getDomain = opts.getDomain ?? (() => opts.domain ?? "general");
+    const { memoryRoot, getDomain } = opts;
 
     // ── before_agent_start: inject always-read memory tier ────────────────────
 
@@ -804,7 +801,7 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
 // ── Default export for standalone pi extension loading ────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  const domain = process.env.MAJORDOMO_DOMAIN ?? "general";
   const memoryRoot = process.env.MAJORDOMO_MEMORY_ROOT ?? path.join(process.cwd(), "memory");
-  cogMemoryExtensionFactory({ domain, memoryRoot })(pi);  // Backward compatible
+  const getDomain = () => process.env.MAJORDOMO_DOMAIN ?? "general";
+  cogMemoryExtensionFactory({ memoryRoot, getDomain })(pi);
 }

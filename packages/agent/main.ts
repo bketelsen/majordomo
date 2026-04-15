@@ -92,10 +92,10 @@ const loader = new DefaultResourceLoader({
   cwd: PROJECT_ROOT,
   systemPromptOverride: () => personaText,
   extensionFactories: [
-    cogMemoryExtensionFactory({ domain, memoryRoot: MEMORY_ROOT }),
-    domainManagerExtensionFactory({ domain, memoryRoot: MEMORY_ROOT, dataRoot: DATA_ROOT, projectRoot: PROJECT_ROOT }),
-    subagentManagerExtensionFactory({ projectRoot: PROJECT_ROOT, agentsDir: AGENTS_DIR, workflowsDir: WORKFLOWS_DIR, dataRoot: DATA_ROOT, domain, memoryRoot: MEMORY_ROOT }),
-    schedulerExtensionFactory({ projectRoot: PROJECT_ROOT, dataRoot: DATA_ROOT, agentsDir: AGENTS_DIR, workflowsDir: WORKFLOWS_DIR, domain }),
+    cogMemoryExtensionFactory({ memoryRoot: MEMORY_ROOT, getDomain: () => domain }),
+    domainManagerExtensionFactory({ memoryRoot: MEMORY_ROOT, dataRoot: DATA_ROOT, projectRoot: PROJECT_ROOT, getDomain: () => domain }),
+    subagentManagerExtensionFactory({ projectRoot: PROJECT_ROOT, agentsDir: AGENTS_DIR, workflowsDir: WORKFLOWS_DIR, dataRoot: DATA_ROOT, memoryRoot: MEMORY_ROOT, getDomain: () => domain }),
+    schedulerExtensionFactory({ projectRoot: PROJECT_ROOT, dataRoot: DATA_ROOT, agentsDir: AGENTS_DIR, workflowsDir: WORKFLOWS_DIR, getDomain: () => domain }),
   ],
 });
 await loader.reload();

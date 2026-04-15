@@ -34,8 +34,7 @@ export interface SchedulerOptions {
   dataRoot: string;
   agentsDir: string;
   workflowsDir?: string;  // for validating workflow jobs
-  domain?: string;  // Deprecated: only the 'general' session starts cron ticks
-  getDomain?: () => string;  // Dynamic domain accessor
+  getDomain: () => string;  // Dynamic domain accessor
 }
 
 interface ScheduledJob {
@@ -95,9 +94,7 @@ function openDb(dataRoot: string): Database {
 
 export function schedulerExtensionFactory(opts: SchedulerOptions) {
   return (pi: ExtensionAPI) => {
-    const { projectRoot, dataRoot, workflowsDir } = opts;
-    // Resolve domain: getDomain accessor takes precedence over static domain
-    const getDomain = opts.getDomain ?? (() => opts.domain ?? "general");
+    const { projectRoot, dataRoot, workflowsDir, getDomain } = opts;
     const db = openDb(dataRoot);
     const activeTasks: Map<string, ReturnType<typeof cron.schedule>> = new Map();
 
@@ -394,10 +391,11 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
 
 export default function (pi: ExtensionAPI) {
   const projectRoot = process.env.MAJORDOMO_PROJECT_ROOT ?? process.cwd();
+  const getDomain = () => process.env.MAJORDOMO_DOMAIN ?? "general";
   schedulerExtensionFactory({
     projectRoot,
     dataRoot: path.join(projectRoot, "data"),
     agentsDir: path.join(projectRoot, "agents"),
-    domain: process.env.MAJORDOMO_DOMAIN ?? "general",
+    getDomain,
   })(pi);
 }

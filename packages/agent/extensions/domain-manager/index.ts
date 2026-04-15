@@ -23,11 +23,10 @@ const logger = createLogger({ context: { component: "domain-manager" } });
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface DomainManagerOptions {
-  domain?: string;       // Deprecated: active domain for this session (use getDomain instead)
   memoryRoot: string;
   dataRoot: string;
   projectRoot: string;
-  getDomain?: () => string;  // Dynamic domain accessor;
+  getDomain: () => string;  // Dynamic domain accessor
 }
 
 interface TelegramTopic {
@@ -164,9 +163,7 @@ async function scaffoldDomainFiles(memoryRoot: string, domainPath: string, files
 
 export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
   return (pi: ExtensionAPI) => {
-    const { memoryRoot, dataRoot, projectRoot } = opts;
-    // Resolve domain: getDomain accessor takes precedence over static domain
-    const getDomain = opts.getDomain ?? (() => opts.domain ?? "general");
+    const { memoryRoot, dataRoot, projectRoot, getDomain } = opts;
 
     // ── create_domain tool ───────────────────────────────────────────────────
 
@@ -623,8 +620,9 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
 // ── Default export for standalone loading ─────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  const domain = process.env.MAJORDOMO_DOMAIN ?? "general";
   const memoryRoot = process.env.MAJORDOMO_MEMORY_ROOT ?? path.join(process.cwd(), "memory");
   const dataRoot = process.env.MAJORDOMO_DATA_ROOT ?? path.join(process.cwd(), "data");
-  domainManagerExtensionFactory({ domain, memoryRoot, dataRoot, projectRoot: process.env.MAJORDOMO_PROJECT_ROOT ?? process.cwd() })(pi);
+  const projectRoot = process.env.MAJORDOMO_PROJECT_ROOT ?? process.cwd();
+  const getDomain = () => process.env.MAJORDOMO_DOMAIN ?? "general";
+  domainManagerExtensionFactory({ memoryRoot, dataRoot, projectRoot, getDomain })(pi);
 }

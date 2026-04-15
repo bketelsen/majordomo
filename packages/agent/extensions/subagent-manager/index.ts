@@ -36,10 +36,9 @@ export interface SubagentManagerOptions {
   agentsDir: string;     // path to agents/*.md
   workflowsDir?: string; // path to workflows/*.yaml (falls back to projectRoot/workflows)
   dataRoot: string;
-  domain?: string;       // Deprecated: active domain for this session (use getDomain instead)
   memoryRoot: string;    // path to memory/ for domain workingDir lookup
   maxConcurrency?: number;
-  getDomain?: () => string;  // Dynamic domain accessor
+  getDomain: () => string;  // Dynamic domain accessor
 }
 
 interface AgentDefinition {
@@ -577,10 +576,8 @@ function resolveTemplate(
 
 export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
   return async (pi: ExtensionAPI) => {
-    const { projectRoot, agentsDir, memoryRoot, dataRoot } = opts;
+    const { projectRoot, agentsDir, memoryRoot, dataRoot, getDomain } = opts;
     const workflowsDir = opts.workflowsDir ?? path.join(projectRoot, "workflows");
-    // Resolve domain: getDomain accessor takes precedence over static domain
-    const getDomain = opts.getDomain ?? (() => opts.domain ?? "general");
 
     // Open SQLite run tracking DB
     const db = openRunsDb(dataRoot);
@@ -1238,11 +1235,12 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
 
 export default function (pi: ExtensionAPI) {
   const projectRoot = process.env.MAJORDOMO_PROJECT_ROOT ?? process.cwd();
+  const getDomain = () => process.env.MAJORDOMO_DOMAIN ?? "general";
   subagentManagerExtensionFactory({
     projectRoot,
     agentsDir: path.join(projectRoot, "agents"),
     dataRoot: path.join(projectRoot, "data"),
-    domain: process.env.MAJORDOMO_DOMAIN ?? "general",
     memoryRoot: process.env.MAJORDOMO_MEMORY_ROOT ?? path.join(projectRoot, "memory"),
+    getDomain,
   })(pi);
 }
