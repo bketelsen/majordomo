@@ -26,7 +26,6 @@ import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
 import { Database } from "bun:sqlite";
-import { listAllContainers, dockerAction, incusAction } from "./lib/containers.ts";
 import { readDomainsManifest, type CogDomain } from "../../shared/lib/domains.ts";
 
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
@@ -347,7 +346,6 @@ async function getWidgetData(name: string): Promise<unknown> {
 
   // Fallback to legacy widgets
   switch (name) {
-    case "containers":  return await computeContainersWidget();
     default: {
       // Try file cache for unknown widget names
       const cachePath = path.join(DATA_ROOT, "widgets", `${name}.json`);
@@ -359,13 +357,6 @@ async function getWidgetData(name: string): Promise<unknown> {
       }
     }
   }
-}
-
-
-
-async function computeContainersWidget(): Promise<unknown> {
-  const containers = await listAllContainers();
-  return { containers, updatedAt: Date.now() };
 }
 
 
@@ -491,32 +482,6 @@ app.get("/api/widgets/:name", async (c) => {
   const data = await getWidgetData(name);
   if (data === null) return c.json({ error: "Widget not found" }, 404);
   return c.json({ widget: name, data });
-});
-
-// Container actions (stop/start/restart)
-app.post("/api/containers/:runtime/:id/:action", async (c) => {
-  const { runtime, id, action } = c.req.param();
-  
-  // Validate runtime
-  if (runtime !== "docker" && runtime !== "incus") {
-    return c.json({ error: "Invalid runtime" }, 400);
-  }
-  
-  // Validate container ID (alphanumeric, hyphens, underscores only)
-  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
-    return c.json({ error: "Invalid container ID" }, 400);
-  }
-  
-  // Validate action
-  if (!["start","stop","restart"].includes(action)) {
-    return c.json({ error: "Invalid action" }, 400);
-  }
-  
-  const act = action as "start" | "stop" | "restart";
-  let ok = false;
-  if (runtime === "docker") ok = await dockerAction(id, act);
-  else if (runtime === "incus") ok = await incusAction(id, act);
-  return c.json({ ok });
 });
 
 // Trigger a scheduled job immediately
