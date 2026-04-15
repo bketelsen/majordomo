@@ -1,49 +1,62 @@
 /**
  * Schedules widget plugin - server-side logic
- * 
- * Displays scheduled jobs and allows triggering them manually
  */
 
-import type { WidgetPlugin, WidgetContext } from "../../src/types.ts";
+import type { WidgetPlugin } from "../../src/types.ts";
 import { Database } from "bun:sqlite";
 import * as path from "node:path";
+import * as fs from "node:fs/promises";
+
+const HOME = process.env.HOME ?? "/root";
+const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");
+const DATA_ROOT = path.join(MAJORDOMO_STATE, "data");
 
 export const plugin: WidgetPlugin = {
   async register(app, ctx) {
-    // Register trigger endpoint for manually running scheduled jobs
-    app.post(`/api/schedules/:id/trigger`, async (c) => {
+    app.post(`/api/schedules/:id/trigger`, async (c: any) => {
       const jobId = c.req.param("id");
-      
-      // Access the agent service manager
+
       const manager = (globalThis as Record<string, unknown>).__majordomoManager as {
-        switchDomain: (domain: string) => Promise<void>;
-        sendMessage: (t: string) => Promise<string>;
+        sendMessage: (domain: string, text: string) => Promise<string>;
       } | undefined;
-      
-      if (!manager) {
-        return c.json({ error: "Agent not available" }, 503);
-      }
-      
-      // Get job details from database
-      const dataRoot = path.dirname(path.dirname(ctx.dataDir));
-      const dbPath = path.join(dataRoot, "scheduler.db");
-      
+
+      if (!manager) return c.json({ error: "Agent not available" }, 503);
+
+      const dbPath = path.join(DATA_ROOT, "scheduler.db");
       try {
         const db = new Database(dbPath, { readonly: true });
         const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId) as Record<string, unknown> | undefined;
         db.close();
-        
-        if (!job) {
-          return c.json({ error: "Job not found" }, 404);
-        }
-        
+
+        if (!job) return c.json({ error: "Job not found" }, 404);
+
         const data = JSON.parse(job.action_data as string);
-        const msg = job.action_type === "pi_command" ? data.command : data.message;
-        
-        // Trigger the job by sending it to the general domain
-        await manager.switchDomain("general");
-        manager.sendMessage(msg).catch(() => {});
-        
+        let msg: string;
+
+        if (job.action_type === "pi_command") {
+          // Resolve /cog-X commands to their skill instructions
+          const cmd = data.command as string;
+          const skillMatch = cmd.match(/^\/cog-(\w+)$/);
+          if (skillMatch) {
+            // Find skill file — check source tree locations
+            const projectRoot = (process.env.MAJORDOMO_HOME
+              ? path.join(process.env.MAJORDOMO_HOME, "current")
+              : process.cwd());
+            const skillFile = path.join(projectRoot, ".claude", "commands", `${skillMatch[1]}.md`);
+            try {
+              const instructions = await fs.readFile(skillFile, "utf-8");
+              msg = `Please execute the following COG pipeline skill. Memory root: \`${path.join(MAJORDOMO_STATE, "memory")}\`\n\n---\n\n${instructions}`;
+            } catch {
+              msg = cmd; // fallback
+            }
+          } else {
+            msg = cmd;
+          }
+        } else {
+          msg = data.message;
+        }
+
+        manager.sendMessage("general", msg).catch(() => {});
         return c.json({ triggered: true, job: jobId });
       } catch (err) {
         console.error("[schedules] Failed to trigger job:", err);
@@ -52,11 +65,8 @@ export const plugin: WidgetPlugin = {
     });
   },
 
-  async getData(ctx) {
-    // Access the shared scheduler database
-    const dataRoot = path.dirname(path.dirname(ctx.dataDir));
-    const dbPath = path.join(dataRoot, "scheduler.db");
-    
+  async getData(_ctx: any) {
+    const dbPath = path.join(DATA_ROOT, "scheduler.db");
     try {
       const db = new Database(dbPath, { readonly: true });
       const jobs = db.prepare(`
@@ -68,36 +78,24 @@ export const plugin: WidgetPlugin = {
         ORDER BY j.id
       `).all() as Array<Record<string, unknown>>;
       db.close();
-      
+
       return {
         jobs: jobs.map(j => ({
           id: j.id,
           cron: j.cron,
           action: (() => {
-            try {
-              const d = JSON.parse(j.action_data as string);
-              return d.command ?? d.message ?? String(j.action_data);
-            } catch {
-              return String(j.action_data);
-            }
+            try { const d = JSON.parse(j.action_data as string); return d.command ?? d.message ?? String(j.action_data); }
+            catch { return String(j.action_data); }
           })(),
           enabled: Boolean(j.enabled),
           lastRan: j.last_ran ?? null,
           runCount: j.run_count ?? 0,
         })),
         updatedAt: Date.now(),
-        meta: {
-          total: jobs.length,
-          enabled: jobs.filter(j => j.enabled).length,
-        },
+        meta: { total: jobs.length, enabled: jobs.filter(j => j.enabled).length },
       };
     } catch (err) {
-      console.error("[schedules] Failed to query database:", err);
-      return {
-        jobs: [],
-        updatedAt: Date.now(),
-        meta: { error: String(err) },
-      };
+      return { jobs: [], updatedAt: Date.now(), meta: { error: String(err) } };
     }
   },
 };
