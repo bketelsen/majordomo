@@ -61,31 +61,84 @@ steps:
       sources: "{{steps.investigate.output.sources}}"
       constraints: "{{workflow.input.context}}"
 
-  - id: implement
-    agent: developer
+  - id: review
+    agent: antagonist
     depends_on: design
     input:
-      design: |
-        # Design Document
+      plan: |
+        # Architecture Design
         {{steps.design.output.design_doc}}
-        
-        # PRD for Reference
-        {{steps.prd.output.prd}}
-        
+
         # Implementation Notes
         {{steps.design.output.implementation_notes}}
-        
+
+        # Test Plan
+        {{steps.design.output.test_plan}}
+      context: |
         Repository: {{workflow.input.repo_path}}
-        
+        Feature: {{workflow.input.feature}}
+
+        PRD for reference:
+        {{steps.prd.output.prd}}
+
+  - id: revise
+    agent: architect
+    depends_on: review
+    input:
+      findings: |
+        # Original Design
+        {{steps.design.output.design_doc}}
+
+        # Antagonist Review
+        Verdict: {{steps.review.output.verdict}}
+
+        ## Fatal Flaws
+        {{steps.review.output.fatal_flaws}}
+
+        ## Serious Concerns
+        {{steps.review.output.serious_concerns}}
+
+        ## Weak Assumptions
+        {{steps.review.output.weak_assumptions}}
+
+        ## Summary
+        {{steps.review.output.summary}}
+
+        # PRD
+        {{steps.prd.output.prd}}
+
+        Revise the design to address the antagonist's feedback.
+        If verdict is 'accept', minor refinements only.
+        If verdict is 'conditional' or 'reject', address each fatal flaw and serious concern.
+        Reference user story IDs from the PRD.
+      sources: "{{steps.investigate.output.sources}}"
+      constraints: "{{workflow.input.context}}"
+
+  - id: implement
+    agent: developer
+    depends_on: revise
+    input:
+      design: |
+        # Revised Design Document
+        {{steps.revise.output.design_doc}}
+
+        # PRD for Reference
+        {{steps.prd.output.prd}}
+
+        # Implementation Notes
+        {{steps.revise.output.implementation_notes}}
+
+        Repository: {{workflow.input.repo_path}}
+
         Implement the design completely. Ensure all acceptance criteria from the PRD are met.
-        Run tests before committing.
-        Create a new branch named: feature/{{workflow.input.branch_name | default "new-feature"}}
+        Run tests and typecheck before committing.
+        Create a new branch named: feature/{{workflow.input.branch_name}}
       constraints: "{{workflow.input.context}}"
       implementation_notes: |
-        {{steps.design.output.implementation_notes}}
-        
+        {{steps.revise.output.implementation_notes}}
+
         Test plan:
-        {{steps.design.output.test_plan}}
+        {{steps.revise.output.test_plan}}
 
   - id: open_pr
     agent: developer
@@ -95,7 +148,7 @@ steps:
         Open a pull request for the implemented feature.
         
         Repository: {{workflow.input.repo_path}}
-        Branch: feature/{{workflow.input.branch_name | default "new-feature"}}
+        Branch: feature/{{workflow.input.branch_name}}
         
         # Feature Summary
         {{steps.prd.output.summary}}
@@ -105,6 +158,9 @@ steps:
         
         # Implementation Summary
         {{steps.implement.output.summary}}
+        
+        # Design Review Notes
+        Antagonist verdict: {{steps.review.output.verdict}}
         
         Instructions:
         - Push the current branch
