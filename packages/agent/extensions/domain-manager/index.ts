@@ -171,7 +171,9 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
       name: "create_domain",
       label: "Create Domain",
       description:
-        "Create a new COG memory domain. This creates the memory directory, standard COG files with L0 headers, updates memory/domains.yml, and reserves a slot in the Telegram mapping. The web UI will show a new tab for this domain.",
+        "Create a new COG memory domain. This creates the memory directory, standard COG files with L0 headers, updates memory/domains.yml, and reserves a slot in the Telegram mapping. The web UI will show a new tab for this domain.\n\n" +
+        "⚠️  Security: workingDir sets the working directory for subagents spawned in this domain. Only provide trusted, absolute paths. " +
+        "The directory must exist and be accessible. For security, it's restricted to user home directories, /tmp, and the project root.",
       promptSnippet: "Create a new COG memory domain with standard file scaffold",
       parameters: Type.Object({
         id: Type.String({
@@ -199,6 +201,63 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
             content: [{ type: "text", text: "❌  Domain ID must be lowercase letters, numbers, hyphens, underscores, or slashes only (path traversal not allowed)" }],
             details: {},
           };
+        }
+
+        // Validate workingDir if provided
+        if (params.workingDir) {
+          // 1. Ensure it's an absolute path
+          if (!path.isAbsolute(params.workingDir)) {
+            return {
+              content: [{ type: "text", text: `❌  workingDir must be an absolute path, got: ${params.workingDir}` }],
+              details: { validation_error: "workingDir_not_absolute" },
+            };
+          }
+
+          // 2. Verify directory exists and is accessible
+          try {
+            await fs.access(params.workingDir, fs.constants.R_OK | fs.constants.W_OK);
+            const stat = await fs.stat(params.workingDir);
+            if (!stat.isDirectory()) {
+              return {
+                content: [{ type: "text", text: `❌  workingDir must be a directory, got: ${params.workingDir}` }],
+                details: { validation_error: "workingDir_not_directory" },
+              };
+            }
+          } catch (err: any) {
+            return {
+              content: [{ 
+                type: "text", 
+                text: `❌  workingDir '${params.workingDir}' does not exist or is not accessible: ${err.message}` 
+              }],
+              details: { validation_error: "workingDir_inaccessible", error: err.message },
+            };
+          }
+
+          // 3. Restrict to allowed parent directories for security
+          const homeDir = process.env.HOME ?? process.env.USERPROFILE;
+          const allowedPrefixes = [
+            homeDir,
+            '/tmp',
+            '/var/tmp',
+            projectRoot,
+          ].filter(Boolean) as string[];
+
+          const isAllowed = allowedPrefixes.some(prefix => {
+            const resolved = path.resolve(params.workingDir!);
+            const normalizedPrefix = path.resolve(prefix);
+            return resolved.startsWith(normalizedPrefix);
+          });
+
+          if (!isAllowed) {
+            const allowedList = allowedPrefixes.join(', ');
+            return {
+              content: [{ 
+                type: "text", 
+                text: `❌  workingDir '${params.workingDir}' is outside allowed directories. Allowed: ${allowedList}` 
+              }],
+              details: { validation_error: "workingDir_not_allowed", allowed_prefixes: allowedPrefixes },
+            };
+          }
         }
 
         // Check for duplicates
