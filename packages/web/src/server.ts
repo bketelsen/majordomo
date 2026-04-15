@@ -1017,8 +1017,12 @@ if (!isCompiledBinary()) {
   app.use("/classic/*", serveStatic({ root: STATIC_ROOT, rewriteRequestPath: (path) => path.replace(/^\/classic/, '') }));
 }
 
-// SPA fallback — serve React index.html for all unmatched routes
+// SPA fallback — serve React index.html for unmatched non-API routes
 app.get("*", async (c) => {
+  // Don't catch API routes — return 404 so they fail clearly
+  if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/plugins/')) {
+    return c.json({ error: 'Not found' }, 404);
+  }
   if (isCompiledBinary()) {
     return c.html(reactIndexHTML);
   }
