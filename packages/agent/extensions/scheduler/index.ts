@@ -143,11 +143,32 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
       activeTasks.set(job.id, task);
     };
 
+    const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(process.env.HOME ?? "/root", ".majordomo");
+    const cogMemoryRoot = path.join(MAJORDOMO_STATE, "memory");
+    const cogCommandsDir = path.join(projectRoot, ".claude", "commands");
+
     const executeJob = async (job: ScheduledJob) => {
       const data = JSON.parse(job.action_data);
 
       if (job.action_type === "pi_command") {
-        pi.sendUserMessage(data.command, { deliverAs: "followUp" });
+        // Map /cog-X commands to their skill instructions directly
+        const cmd = data.command as string;
+        const skillMatch = cmd.match(/^\/cog-(\w+)$/);
+        if (skillMatch) {
+          const skill = skillMatch[1];
+          const skillFile = path.join(cogCommandsDir, `${skill}.md`);
+          try {
+            const skillInstructions = await fs.readFile(skillFile, "utf-8");
+            pi.sendUserMessage(
+              `Please execute the following COG pipeline skill. Memory root: \`${cogMemoryRoot}\`\n\n---\n\n${skillInstructions}`,
+              { deliverAs: "followUp" }
+            );
+          } catch {
+            pi.sendUserMessage(`Run COG skill: ${cmd}`, { deliverAs: "followUp" });
+          }
+        } else {
+          pi.sendUserMessage(cmd, { deliverAs: "followUp" });
+        }
       } else if (job.action_type === "agent_prompt") {
         pi.sendUserMessage(data.message, { deliverAs: "followUp" });
       }
@@ -252,8 +273,7 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
     // ── COG pipeline commands ────────────────────────────────────────────────
 
     const runCogSkill = async (skill: string, ctx: { ui: { notify: (msg: string, type?: "info" | "warning" | "error") => void } }) => {
-      const skillFile = path.join(projectRoot, ".claude", "commands", `${skill}.md`);
-      const memoryRoot = path.join(projectRoot, "memory");
+      const skillFile = path.join(cogCommandsDir, `${skill}.md`);
 
       let skillInstructions: string;
       try {
@@ -265,11 +285,8 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
 
       ctx.ui.notify(`Starting /cog-${skill}…`, "info");
 
-      // Deliver the skill instructions as a user message. Majordomo already has
-      // the COG memory tools (cog_read, cog_write, etc.) from the cog-memory
-      // extension, so it can execute the skill directly.
       pi.sendUserMessage(
-        `Please execute the following COG pipeline skill. Memory root: \`${memoryRoot}\`\n\n---\n\n${skillInstructions}`,
+        `Please execute the following COG pipeline skill. Memory root: \`${cogMemoryRoot}\`\n\n---\n\n${skillInstructions}`,
         { deliverAs: "followUp" }
       );
     };
