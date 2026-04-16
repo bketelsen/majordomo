@@ -195,6 +195,35 @@ function pruneCache(): void {
 }
 
 /**
+ * Remove cache entries that have exceeded TTL.
+ * Prevents memory leak from domains accessed once and never again.
+ */
+function pruneExpiredCache(): void {
+  const now = Date.now();
+  const expiredKeys: string[] = [];
+  
+  for (const [key, cached] of messageCache.entries()) {
+    if (now - cached.timestamp > CACHE_TTL) {
+      expiredKeys.push(key);
+    }
+  }
+  
+  for (const key of expiredKeys) {
+    messageCache.delete(key);
+  }
+  
+  if (expiredKeys.length > 0) {
+    console.log(`[cache] Pruned ${expiredKeys.length} expired cache entries`);
+  }
+}
+
+// Periodic cleanup to prevent unbounded growth
+// Runs every 60 seconds to remove expired entries
+const cacheCleanupInterval = setInterval(() => {
+  pruneExpiredCache();
+}, 60000);
+
+/**
  * Read lines from end of file in reverse order.
  * Optimized for reading recent messages without parsing the entire file.
  */
