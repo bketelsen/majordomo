@@ -39,6 +39,48 @@ export async function hasAgenticHarness(repoPath: string): Promise<boolean> {
 }
 
 /**
+ * Get .agentic/ context injection string for agent prompts (Wave 4)
+ * 
+ * Returns a brief note about available artifacts plus a preview of MAP.md.
+ * Agents read the full artifacts on-demand; this is just the index.
+ */
+export async function getAgenticContext(repoPath: string): Promise<string | null> {
+  if (!await hasAgenticHarness(repoPath)) return null;
+  
+  const parts: string[] = [];
+  
+  // Check if README.md exists
+  const readmePath = path.join(repoPath, ".agentic", "README.md");
+  if (existsSync(readmePath)) {
+    parts.push("This repo has a .agentic/ harness with practice artifacts:");
+    parts.push("- .agentic/prds/ — product requirements (read before implementing features)");
+    parts.push("- .agentic/arch/ — architecture decisions (read before designing)");
+    parts.push("- .agentic/plans/ — implementation plans");
+    parts.push("- .agentic/tests/ — test specs (write these BEFORE implementing)");
+    parts.push("- .agentic/contexts/MAP.md — codebase navigation guide");
+  }
+  
+  // Include first 50 lines of MAP.md if it exists
+  const mapPath = path.join(repoPath, ".agentic", "contexts", "MAP.md");
+  if (existsSync(mapPath)) {
+    try {
+      const { readFileSync } = await import("node:fs");
+      const mapContent = readFileSync(mapPath, "utf-8");
+      const mapPreview = mapContent.split("\n").slice(0, 50).join("\n");
+      parts.push("\n## Codebase Map (from .agentic/contexts/MAP.md)");
+      parts.push(mapPreview);
+      if (mapContent.split("\n").length > 50) {
+        parts.push("\n(... read full .agentic/contexts/MAP.md for complete details)");
+      }
+    } catch (err) {
+      logger.debug("Failed to read MAP.md", { mapPath, error: err });
+    }
+  }
+  
+  return parts.length > 0 ? parts.join("\n") : null;
+}
+
+/**
  * Initialize the .agentic/ harness in a repository
  * Calls `mentat init` in the repo directory
  */
