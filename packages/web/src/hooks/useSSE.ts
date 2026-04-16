@@ -55,6 +55,8 @@ export function useSSE(activeDomain: string) {
   useEffect(() => {
     let evtSource: EventSource | null = null;
     let destroyed = false;
+    let retryDelay = 1000; // Start at 1s
+    const maxRetryDelay = 16000; // Cap at 16s
 
     function connect() {
       if (destroyed) return;
@@ -62,13 +64,19 @@ export function useSSE(activeDomain: string) {
 
       evtSource.onopen = () => {
         setState(prev => ({ ...prev, isConnected: true }));
+        retryDelay = 1000; // Reset backoff on successful connection
       };
 
       evtSource.onerror = () => {
         setState(prev => ({ ...prev, isConnected: false }));
         evtSource?.close();
-        // Reconnect after 3 seconds (only if not destroyed)
-        if (!destroyed) setTimeout(connect, 3000);
+        // Exponential backoff with jitter
+        if (!destroyed) {
+          const jitter = Math.random() * 0.3 * retryDelay; // ±30% jitter
+          const delayWithJitter = retryDelay + jitter;
+          setTimeout(connect, delayWithJitter);
+          retryDelay = Math.min(retryDelay * 2, maxRetryDelay); // Double, cap at max
+        }
       };
 
       evtSource.onmessage = (e) => {
