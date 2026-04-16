@@ -223,13 +223,14 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
                 details: { validation_error: "workingDir_not_directory" },
               };
             }
-          } catch (err: any) {
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
             return {
               content: [{ 
                 type: "text", 
-                text: `❌  workingDir '${params.workingDir}' does not exist or is not accessible: ${err.message}` 
+                text: `❌  workingDir '${params.workingDir}' does not exist or is not accessible: ${message}` 
               }],
-              details: { validation_error: "workingDir_inaccessible", error: err.message },
+              details: { validation_error: "workingDir_inaccessible", error: message },
             };
           }
 
@@ -603,13 +604,14 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
               domain: params.domain,
             },
           };
-        } catch (err: any) {
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           return {
             content: [{
               type: "text",
-              text: `❌ Failed to switch domain: ${err.message}`,
+              text: `❌ Failed to switch domain: ${message}`,
             }],
-            details: { success: false, error: err.message },
+            details: { success: false, error: message },
           };
         }
       },

@@ -78,12 +78,13 @@ async function migrateSessionHistory(dataRoot: string): Promise<void> {
 
       stats[domainId] = messageCount;
       console.log(`[migrate]   → ${messageCount} message(s) from ${domainId}`);
-    } catch (err: any) {
-      if (err.code === "ENOENT") {
+    } catch (err) {
+      if (err instanceof Error && 'code' in err && err.code === "ENOENT") {
         console.log(`[migrate]   → ${domainId}/session.jsonl not found (empty domain)`);
         stats[domainId] = 0;
       } else {
-        console.warn(`[migrate]   → Could not read ${domainId}/session.jsonl:`, err.message);
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[migrate]   → Could not read ${domainId}/session.jsonl:`, message);
         stats[domainId] = 0;
       }
     }
@@ -123,8 +124,9 @@ async function migrateSessionHistory(dataRoot: string): Promise<void> {
     try {
       await fs.rename(src, dst);
       console.log(`[migrate]   → ${dir.name}/ → .archive/${dir.name}/`);
-    } catch (err: any) {
-      console.warn(`[migrate]   → Could not archive ${dir.name}:`, err.message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[migrate]   → Could not archive ${dir.name}:`, message);
     }
   }
 
