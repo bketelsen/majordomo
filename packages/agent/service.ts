@@ -44,8 +44,7 @@ const AGENTS_DIR_DEFAULT = path.join(PROJECT_ROOT, "agents");
 const WORKFLOWS_DIR_USER = path.join(CONFIG_ROOT, "workflows");
 const WORKFLOWS_DIR_DEFAULT = path.join(PROJECT_ROOT, "workflows");
 
-// Persona file (always from project root)
-// const PERSONA_FILE = path.join(PROJECT_ROOT, "packages", "agent", "persona", "majordomo.md");
+
 
 // ── Sanity checks ─────────────────────────────────────────────────────────────
 
