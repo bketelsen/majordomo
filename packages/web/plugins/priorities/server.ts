@@ -11,6 +11,11 @@ const HOME = process.env.HOME ?? "/root";
 const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");
 const MEMORY_ROOT = path.join(MAJORDOMO_STATE, "memory");
 
+// Validate domain ID format to prevent path traversal
+function isValidDomainId(id: string): boolean {
+  return /^[a-z0-9/_-]+$/.test(id) && !id.includes('..');
+}
+
 
 
 interface PriorityItem {
@@ -73,6 +78,7 @@ export const plugin = {
     app.post(`/api/widgets/${ctx.id}/done`, async (c: any) => {
       const { domain, task } = await c.req.json();
       if (!domain || !task) return c.json({ error: "domain and task required" }, 400);
+      if (!isValidDomainId(domain)) return c.json({ error: "Invalid domain ID format" }, 400);
       const result = await markDone(MEMORY_ROOT, domain, task);
       return result.ok ? c.json({ ok: true }) : c.json({ error: result.error }, 400);
     });
