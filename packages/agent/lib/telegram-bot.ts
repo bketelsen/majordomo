@@ -16,6 +16,9 @@ import yaml from "js-yaml";
 import { loadYamlFile } from "../../shared/lib/yaml-helpers";
 import { Bot, type Context } from "grammy";
 import type { DomainContextManager } from "./domain-context-manager.ts";
+import { createLogger } from "./logger.ts";
+
+const logger = createLogger({ context: { component: "telegram-bot" } });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -90,27 +93,27 @@ export class TelegramBot {
 
     this.allowedChatId = this.map.telegram.supergroup_id ?? null;
     if (!this.allowedChatId) {
-      console.warn("[telegram] supergroup_id not configured in data/telegram-map.yaml");
-      console.warn("[telegram] Send any message to the bot and it will log the chat ID");
+      logger.warn("supergroup_id not configured in data/telegram-map.yaml");
+      logger.warn("Send any message to the bot and it will log the chat ID");
     }
 
     this.registerHandlers();
 
     this.running = true;
-    console.log("[telegram] Starting bot (long-polling)...");
+    logger.info("Starting bot (long-polling)...");
 
     this.bot.start({
-      onStart: (info) => console.log(`[telegram] Bot @${info.username} is running`),
+      onStart: (info) => logger.info(`Bot @${info.username} is running`),
       drop_pending_updates: true,
     }).catch(err => {
-      if (this.running) console.error("[telegram] Polling error:", err);
+      if (this.running) logger.error("Polling error", err);
     });
   }
 
   async stop(): Promise<void> {
     this.running = false;
     await this.bot.stop();
-    console.log("[telegram] Bot stopped");
+    logger.info("Bot stopped");
   }
 
   async sendToDomain(_domain: string, text: string): Promise<void> {
@@ -127,9 +130,9 @@ export class TelegramBot {
       this.lastSeenChatId = chatId;
 
       if (!this.allowedChatId) {
-        console.log(`[telegram] Received message from chat ID: ${chatId} (type: ${ctx.chat.type})`);
+        logger.info(`Received message from chat ID: ${chatId} (type: ${ctx.chat.type})`);
         if (ctx.chat.type === "supergroup") {
-          console.log(`[telegram] 💡 Set supergroup_id: ${chatId} in data/telegram-map.yaml`);
+          logger.info(`💡 Set supergroup_id: ${chatId} in data/telegram-map.yaml`);
         }
       }
 
@@ -140,7 +143,7 @@ export class TelegramBot {
     });
 
     this.bot.catch((err) => {
-      console.error("[telegram] Unhandled error:", err.message);
+      logger.error("Unhandled error", { error: err.message });
     });
   }
 
@@ -152,7 +155,7 @@ export class TelegramBot {
     if (!text?.trim()) return;
 
     const domain = this.opts.manager.getDomain();
-    console.log(`[telegram] Message in active domain '${domain}': ${text.slice(0, 60)}`);
+    logger.info(`Message in active domain '${domain}': ${text.slice(0, 60)}`);
 
     if (this.opts.manager.isStreaming()) {
       await this.reply(ctx, "⏳ Still processing a previous message — please wait a moment.");
@@ -177,7 +180,7 @@ export class TelegramBot {
     } catch (err) {
       clearInterval(typingInterval);
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[telegram] Error processing message in domain '${domain}':`, message);
+      logger.error(`Error processing message in domain '${domain}'`, { error: message });
       await this.reply(ctx, `❌ Error: ${message}`);
     }
   }
@@ -205,11 +208,11 @@ export class TelegramBot {
       } catch (err) {
         lastError = err;
         const errorMsg = err instanceof Error ? err.message : String(err);
-        console.error(`[telegram] Failed to reply (attempt ${attempt}/${MAX_RETRY_ATTEMPTS}):`, errorMsg);
+        logger.error(`Failed to reply (attempt ${attempt}/${MAX_RETRY_ATTEMPTS})`, { error: errorMsg });
 
         if (attempt < MAX_RETRY_ATTEMPTS && this.isRetriableError(err)) {
           const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
-          console.log(`[telegram] Retrying in ${delay}ms...`);
+          logger.info(`Retrying in ${delay}ms...`);
           await this.sleep(delay);
         }
       }
@@ -217,7 +220,7 @@ export class TelegramBot {
 
     // All retries exhausted - send fallback notification
     const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
-    console.error(`[telegram] Message delivery failed after ${MAX_RETRY_ATTEMPTS} attempts:`, errorMsg);
+    logger.error(`Message delivery failed after ${MAX_RETRY_ATTEMPTS} attempts`, { error: errorMsg });
     
     // Try to send a fallback error message (no retry to avoid infinite loop)
     try {
@@ -226,7 +229,7 @@ export class TelegramBot {
         "⚠️ System error: Unable to deliver response. Please try again later."
       );
     } catch (fallbackErr) {
-      console.error("[telegram] Failed to send fallback error message:", fallbackErr);
+      logger.error("Failed to send fallback error message", fallbackErr instanceof Error ? fallbackErr : { error: String(fallbackErr) });
     }
   }
 
@@ -240,11 +243,11 @@ export class TelegramBot {
       } catch (err) {
         lastError = err;
         const errorMsg = err instanceof Error ? err.message : String(err);
-        console.error(`[telegram] Failed to send message (attempt ${attempt}/${MAX_RETRY_ATTEMPTS}):`, errorMsg);
+        logger.error(`Failed to send message (attempt ${attempt}/${MAX_RETRY_ATTEMPTS})`, { error: errorMsg });
 
         if (attempt < MAX_RETRY_ATTEMPTS && this.isRetriableError(err)) {
           const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
-          console.log(`[telegram] Retrying in ${delay}ms...`);
+          logger.info(`Retrying in ${delay}ms...`);
           await this.sleep(delay);
         }
       }
@@ -252,7 +255,7 @@ export class TelegramBot {
 
     // All retries exhausted - send fallback notification
     const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
-    console.error(`[telegram] Message delivery failed after ${MAX_RETRY_ATTEMPTS} attempts:`, errorMsg);
+    logger.error(`Message delivery failed after ${MAX_RETRY_ATTEMPTS} attempts`, { error: errorMsg });
     
     // Try to send a fallback error message (no retry to avoid infinite loop)
     try {
@@ -261,7 +264,7 @@ export class TelegramBot {
         "⚠️ System error: Unable to deliver response. Please try again later."
       );
     } catch (fallbackErr) {
-      console.error("[telegram] Failed to send fallback error message:", fallbackErr);
+      logger.error("Failed to send fallback error message", fallbackErr instanceof Error ? fallbackErr : { error: String(fallbackErr) });
     }
   }
 
