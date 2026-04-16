@@ -249,25 +249,26 @@ function createRun(db: Database, agent: string, input: Record<string, unknown>, 
   return { id, agent, status: "running", input, provider, model, startedAt: Date.now(), retries: 0 };
 }
 
+// Generic helper to update database records by iterating over provided fields
+function updateRecord<T extends Record<string, unknown>>(
+  db: Database,
+  table: string,
+  id: string,
+  fields: Partial<T>,
+  columnMapping: Record<string, string>
+): void {
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) {
+      const columnName = columnMapping[key] ?? key;
+      db.prepare(`UPDATE ${table} SET ${columnName} = ? WHERE id = ?`).run(value, id);
+    }
+  }
+}
+
 function updateRun(db: Database, id: string, fields: Partial<Pick<RunRecord, 'status' | 'output' | 'error' | 'stderr' | 'retries' | 'finishedAt'>>): void {
-  if (fields.status !== undefined) {
-    db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(fields.status, id);
-  }
-  if (fields.output !== undefined) {
-    db.prepare("UPDATE runs SET output = ? WHERE id = ?").run(fields.output, id);
-  }
-  if (fields.error !== undefined) {
-    db.prepare("UPDATE runs SET error = ? WHERE id = ?").run(fields.error, id);
-  }
-  if (fields.stderr !== undefined) {
-    db.prepare("UPDATE runs SET stderr = ? WHERE id = ?").run(fields.stderr, id);
-  }
-  if (fields.retries !== undefined) {
-    db.prepare("UPDATE runs SET retries = ? WHERE id = ?").run(fields.retries, id);
-  }
-  if (fields.finishedAt !== undefined) {
-    db.prepare("UPDATE runs SET finished_at = ? WHERE id = ?").run(fields.finishedAt, id);
-  }
+  updateRecord(db, 'runs', id, fields, {
+    finishedAt: 'finished_at'
+  });
 }
 
 function getRun(db: Database, id: string): RunRecord | null {
@@ -348,24 +349,10 @@ function updateWorkflowStep(
   id: string,
   fields: Partial<Pick<WorkflowStepRecord, 'status' | 'input' | 'output' | 'error' | 'startedAt' | 'finishedAt'>>
 ): void {
-  if (fields.status !== undefined) {
-    db.prepare("UPDATE workflow_steps SET status = ? WHERE id = ?").run(fields.status, id);
-  }
-  if (fields.input !== undefined) {
-    db.prepare("UPDATE workflow_steps SET input = ? WHERE id = ?").run(fields.input, id);
-  }
-  if (fields.output !== undefined) {
-    db.prepare("UPDATE workflow_steps SET output = ? WHERE id = ?").run(fields.output, id);
-  }
-  if (fields.error !== undefined) {
-    db.prepare("UPDATE workflow_steps SET error = ? WHERE id = ?").run(fields.error, id);
-  }
-  if (fields.startedAt !== undefined) {
-    db.prepare("UPDATE workflow_steps SET started_at = ? WHERE id = ?").run(fields.startedAt, id);
-  }
-  if (fields.finishedAt !== undefined) {
-    db.prepare("UPDATE workflow_steps SET finished_at = ? WHERE id = ?").run(fields.finishedAt, id);
-  }
+  updateRecord(db, 'workflow_steps', id, fields, {
+    startedAt: 'started_at',
+    finishedAt: 'finished_at'
+  });
 }
 
 // ── Spawn a pi subagent process ────────────────────────────────────────────────
