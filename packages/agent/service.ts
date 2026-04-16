@@ -247,5 +247,5 @@ const shutdown = async (signal: string) => {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
-// Keep the process alive
-await new Promise(() => {});
+// Keep the process alive (prevents Node.js from exiting)
+process.stdin.resume();
