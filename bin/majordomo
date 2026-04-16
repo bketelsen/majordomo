@@ -37,7 +37,12 @@ MAJORDOMO_STATE="${MAJORDOMO_STATE:-$HOME/.majordomo}"
 MAJORDOMO_HOME="${MAJORDOMO_HOME:-$HOME/.local/share/majordomo}"
 PORT="${PORT:-3000}"
 STARTUP_TIMEOUT_SEC="${STARTUP_TIMEOUT_SEC:-90}"
-HEALTHCHECK_LOCAL_URL="http://127.0.0.1:${PORT}/health"
+# Detect TLS — use https if certs are present
+if [[ -f "$MAJORDOMO_STATE/tls/framework.goat-snake.ts.net.crt" ]]; then
+  HEALTHCHECK_LOCAL_URL="https://127.0.0.1:${PORT}/health"
+else
+  HEALTHCHECK_LOCAL_URL="http://127.0.0.1:${PORT}/health"
+fi
 
 # Deploy-mode detection
 if [[ -x "$MAJORDOMO_HOME/current/majordomo" ]]; then
@@ -93,8 +98,9 @@ systemd_show() {
 
 health_check() {
   local pid=$1 elapsed=0
+  log "Waiting up to ${STARTUP_TIMEOUT_SEC}s for health check at $HEALTHCHECK_LOCAL_URL..."
   for _ in $(seq 1 "$STARTUP_TIMEOUT_SEC"); do
-    if curl -sf --max-time 2 "$HEALTHCHECK_LOCAL_URL" &>/dev/null; then return 0; fi
+    if curl -ksf --max-time 2 "$HEALTHCHECK_LOCAL_URL" &>/dev/null; then return 0; fi
     pid_running "$pid" || return 1
     elapsed=$((elapsed + 1))
     (( elapsed % 5 == 0 )) && log "Waiting for health check... ${elapsed}s elapsed"
@@ -106,7 +112,7 @@ health_check() {
 cmd_start() {
   [[ -f "$SERVICE_ENTRY" ]] || [[ -x "$SERVICE_ENTRY" ]] || \
     die "Service entry not found at $SERVICE_ENTRY — run 'majordomo deploy' first"
-  
+
   local existing_pid; existing_pid=$(read_pid)
   [[ -n "$existing_pid" ]] && pid_running "$existing_pid" && die "Already running (PID $existing_pid). Use 'restart'."
 
@@ -114,7 +120,7 @@ cmd_start() {
   log "Starting Majordomo in ${MODE} mode (project: $PROJECT_ROOT, port: $PORT)..."
 
   cd "$PROJECT_ROOT"
-  
+
   if [[ "$MODE" == "compiled" ]]; then
     # Run compiled binary directly
     MAJORDOMO_STATE="$MAJORDOMO_STATE" \
@@ -126,7 +132,7 @@ cmd_start() {
     MAJORDOMO_STATE="$MAJORDOMO_STATE" PORT="$PORT" \
       nohup bun "$SERVICE_ENTRY" >> "$LOG_FILE" 2>&1 &
   fi
-  
+
   local pid=$!
   echo "$pid" > "$PID_FILE"
 
@@ -178,19 +184,19 @@ cmd_status() {
   local version pid state
   local load_state="unknown" active_state="unknown" sub_state="unknown" systemd_pid="0"
   local manager="cli/pid-file"
-  
+
   if [[ "$MODE" == "deploy" && -f "$PROJECT_ROOT/VERSION" ]]; then
     version=$(cat "$PROJECT_ROOT/VERSION")
   else
     version=$(grep '"version"' "$PROJECT_ROOT/package.json" 2>/dev/null | grep -oP '(?<="version": ")[^"]+' || echo "dev")
   fi
-  
+
   pid=$(read_pid)
-  if [[ -z "$pid" ]]; then 
+  if [[ -z "$pid" ]]; then
     state="stopped"
-  elif pid_running "$pid"; then 
+  elif pid_running "$pid"; then
     state="running"
-  else 
+  else
     state="zombie (stale PID)"
   fi
 
@@ -267,7 +273,7 @@ case "${1:-help}" in
   logs)     cmd_logs ;;
   dev)      cmd_dev ;;
   setup)    shift; bash "$SCRIPT_DIR/setup.sh" "$@" ;;
-  *)        
+  *)
     echo "Usage: majordomo {start|stop|restart|status|deploy|rollback|logs|dev|setup}"
     echo ""
     echo "Commands:"
