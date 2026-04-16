@@ -29,7 +29,7 @@ import { readDomainsManifest, type CogDomain } from "../../shared/lib/domains.ts
 import "../../shared/types.ts";
 
 import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
-import { indexHTML, isCompiledBinary, manifest, serviceWorker, appleTouchIcon, reactIndexHTML, appJs, appCss } from "./assets.ts";
+import { indexHTML, isCompiledBinary, manifest, serviceWorker, getAppleTouchIcon, getIcon512, reactIndexHTML, appJs, appCss } from "./assets.ts";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -935,7 +935,7 @@ app.get("/sw.js", async (c) => {
 
 app.get("/apple-touch-icon.png", async (c) => {
   if (isCompiledBinary()) {
-    return new Response(appleTouchIcon as unknown as BodyInit, {
+    return new Response(await getAppleTouchIcon() as unknown as BodyInit, {
       headers: { "Content-Type": "image/png" },
     });
   }
