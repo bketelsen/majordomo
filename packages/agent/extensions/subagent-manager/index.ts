@@ -26,6 +26,7 @@ import { Type } from "@sinclair/typebox";
 import { readDomainsManifest } from "../../../shared/lib/domains";
 import { loadYamlFile } from "../../../shared/lib/yaml-helpers";
 import { createLogger } from "../../lib/logger.ts";
+import { runMigrations, type Migration } from "../../lib/db-migrations.ts";
 
 const logger = createLogger({ context: { component: "subagent-manager" } });
 
@@ -152,65 +153,88 @@ function parseAgentFile(content: string): AgentDefinition | null {
 
 // ── Run tracking (SQLite-backed) ─────────────────────────────────────────────
 
-function openRunsDb(dataRoot: string): Database {  const db = new Database(path.join(dataRoot, "subagents.db"));
+// Define schema migrations
+const RUNS_MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    name: "initial_schema",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS runs (
+          id          TEXT PRIMARY KEY,
+          agent       TEXT NOT NULL,
+          status      TEXT NOT NULL DEFAULT 'running',
+          input       TEXT NOT NULL,
+          output      TEXT,
+          error       TEXT,
+          started_at  INTEGER NOT NULL,
+          finished_at INTEGER,
+          retries     INTEGER NOT NULL DEFAULT 0
+        )
+      `);
+    },
+  },
+  {
+    version: 2,
+    name: "add_stderr_column",
+    up: (db) => {
+      db.exec(`ALTER TABLE runs ADD COLUMN stderr TEXT`);
+    },
+  },
+  {
+    version: 3,
+    name: "add_provider_and_model_columns",
+    up: (db) => {
+      db.exec(`ALTER TABLE runs ADD COLUMN provider TEXT`);
+      db.exec(`ALTER TABLE runs ADD COLUMN model TEXT`);
+    },
+  },
+  {
+    version: 4,
+    name: "create_workflow_steps_table",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS workflow_steps (
+          id              TEXT PRIMARY KEY,
+          workflow_id     TEXT NOT NULL,
+          workflow_name   TEXT NOT NULL,
+          step_id         TEXT NOT NULL,
+          agent           TEXT NOT NULL,
+          status          TEXT NOT NULL DEFAULT 'pending',
+          input           TEXT,
+          output          TEXT,
+          error           TEXT,
+          started_at      INTEGER,
+          finished_at     INTEGER,
+          iteration_index INTEGER,
+          iteration_total INTEGER,
+          created_at      INTEGER NOT NULL
+        )
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow 
+          ON workflow_steps(workflow_id)
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_workflow_steps_status 
+          ON workflow_steps(status)
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_workflow_steps_created 
+          ON workflow_steps(created_at DESC)
+      `);
+    },
+  },
+];
+
+function openRunsDb(dataRoot: string): Database {
+  const db = new Database(path.join(dataRoot, "subagents.db"));
   
   // Enable foreign key constraints
   db.exec("PRAGMA foreign_keys = ON");
   
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS runs (
-      id          TEXT PRIMARY KEY,
-      agent       TEXT NOT NULL,
-      status      TEXT NOT NULL DEFAULT 'running',
-      input       TEXT NOT NULL,
-      output      TEXT,
-      error       TEXT,
-      stderr      TEXT,
-      started_at  INTEGER NOT NULL,
-      finished_at INTEGER,
-      retries     INTEGER NOT NULL DEFAULT 0
-    );
-    -- Additive migration: add stderr column if it doesn't exist (safe on repeat runs)
-    CREATE TABLE IF NOT EXISTS runs_migration_check (dummy INTEGER);
-  `);
-  // Add stderr column idempotently (ALTER TABLE throws if column exists in SQLite)
-  try { db.exec(`ALTER TABLE runs ADD COLUMN stderr TEXT`); } catch (err) {
-    logger.debug("stderr column already exists in runs table", { error: err });
-  }
-  // Add provider and model columns idempotently
-  try { db.exec(`ALTER TABLE runs ADD COLUMN provider TEXT`); } catch (err) {
-    logger.debug("provider column already exists in runs table", { error: err });
-  }
-  try { db.exec(`ALTER TABLE runs ADD COLUMN model TEXT`); } catch (err) {
-    logger.debug("model column already exists in runs table", { error: err });
-  }
-
-  // Create workflow_steps table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workflow_steps (
-      id              TEXT PRIMARY KEY,
-      workflow_id     TEXT NOT NULL,
-      workflow_name   TEXT NOT NULL,
-      step_id         TEXT NOT NULL,
-      agent           TEXT NOT NULL,
-      status          TEXT NOT NULL DEFAULT 'pending',
-      input           TEXT,
-      output          TEXT,
-      error           TEXT,
-      started_at      INTEGER,
-      finished_at     INTEGER,
-      iteration_index INTEGER,
-      iteration_total INTEGER,
-      created_at      INTEGER NOT NULL
-    );
-    
-    CREATE INDEX IF NOT EXISTS idx_workflow_steps_workflow 
-      ON workflow_steps(workflow_id);
-    CREATE INDEX IF NOT EXISTS idx_workflow_steps_status 
-      ON workflow_steps(status);
-    CREATE INDEX IF NOT EXISTS idx_workflow_steps_created 
-      ON workflow_steps(created_at DESC);
-  `);
+  // Run migrations
+  runMigrations(db, RUNS_MIGRATIONS);
 
   // Mark any runs still 'running' from a previous process as orphaned
   const orphaned = db.prepare(

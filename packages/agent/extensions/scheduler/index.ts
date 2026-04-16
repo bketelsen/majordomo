@@ -24,6 +24,7 @@ import { EventEmitter } from "node:events";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createLogger } from "../../lib/logger.ts";
+import { runMigrations, type Migration } from "../../lib/db-migrations.ts";
 import "../../../shared/types.ts";
 
 const logger = createLogger({ context: { component: "scheduler" } });
@@ -67,35 +68,48 @@ const COG_PIPELINE_JOBS = [
 
 // ── DB schema ─────────────────────────────────────────────────────────────────
 
+// Define schema migrations
+const SCHEDULER_MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    name: "initial_schema",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS jobs (
+          id          TEXT PRIMARY KEY,
+          cron        TEXT NOT NULL,
+          action_type TEXT NOT NULL,
+          action_data TEXT NOT NULL,
+          enabled     INTEGER NOT NULL DEFAULT 1,
+          created_at  TEXT NOT NULL
+        )
+      `);
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS runs (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          job_id     TEXT NOT NULL,
+          ran_at     TEXT NOT NULL,
+          success    INTEGER NOT NULL,
+          error      TEXT
+        )
+      `);
+    },
+  },
+  {
+    version: 2,
+    name: "add_trigger_type_column",
+    up: (db) => {
+      db.exec(`ALTER TABLE jobs ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'cron'`);
+    },
+  },
+];
+
 function openDb(dataRoot: string): Database {
   const dbPath = path.join(dataRoot, "scheduler.db");
   const db = new Database(dbPath);
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS jobs (
-      id          TEXT PRIMARY KEY,
-      cron        TEXT NOT NULL,
-      action_type TEXT NOT NULL,
-      action_data TEXT NOT NULL,
-      enabled     INTEGER NOT NULL DEFAULT 1,
-      created_at  TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS runs (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      job_id     TEXT NOT NULL,
-      ran_at     TEXT NOT NULL,
-      success    INTEGER NOT NULL,
-      error      TEXT
-    );
-  `);
-
-  // Add trigger_type column idempotently
-  try {
-    db.exec(`ALTER TABLE jobs ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'cron'`);
-  } catch {
-    // Column already exists
-  }
+  // Run migrations
+  runMigrations(db, SCHEDULER_MIGRATIONS);
 
   return db;
 }
