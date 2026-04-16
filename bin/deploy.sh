@@ -103,11 +103,8 @@ PKGJSON
   mkdir -p "$MAJORDOMO_HOME/current/.claude/commands"
   cp -r "$REPO_ROOT/.claude/commands/"* "$MAJORDOMO_HOME/current/.claude/commands/"
 
-  # Copy plugins to external state dir — compiled binary can't load from /$bunfs/
-  log "Copying plugins to $MAJORDOMO_STATE/plugins..."
-  mkdir -p "$MAJORDOMO_STATE/plugins"
-  cp -r "$REPO_ROOT/packages/web/plugins/"* "$MAJORDOMO_STATE/plugins/"
-  
+  # Plugin system removed — widgets are now inline in server.ts
+
 else
   # ── Source deployment mode (legacy) ────────────────────────────────────────────
 
