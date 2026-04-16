@@ -571,167 +571,209 @@ app.get("/health", (c) => c.json({ status: "ok", ts: Date.now() }));
 
 // Session health check — scans for corrupted sessions
 app.get("/api/health/sessions", async (c) => {
-  const stats = Array.from(corruptionStats.values());
-  const totalCorrupted = stats.reduce((sum, s) => sum + s.corruptedLines, 0);
-  
-  // Scan all session files for potential issues
-  const sessionFiles: Array<{ path: string; size: number; accessible: boolean }> = [];
-  
   try {
-    const unifiedSessionFile = path.join(DATA_ROOT, "sessions", "session.jsonl");
-    const unifiedStats = await fs.stat(unifiedSessionFile).catch(() => null);
-    if (unifiedStats) {
-      sessionFiles.push({
-        path: unifiedSessionFile,
-        size: unifiedStats.size,
-        accessible: true,
-      });
-    }
-  } catch { /* not found */ }
-  
-  // Check legacy per-domain session files
-  try {
-    const sessionsDir = path.join(DATA_ROOT, "sessions");
-    const entries = await fs.readdir(sessionsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const sessionFile = path.join(sessionsDir, entry.name, "session.jsonl");
-        const sessionStats = await fs.stat(sessionFile).catch(() => null);
-        if (sessionStats) {
-          sessionFiles.push({
-            path: sessionFile,
-            size: sessionStats.size,
-            accessible: true,
-          });
+    const stats = Array.from(corruptionStats.values());
+    const totalCorrupted = stats.reduce((sum, s) => sum + s.corruptedLines, 0);
+    
+    // Scan all session files for potential issues
+    const sessionFiles: Array<{ path: string; size: number; accessible: boolean }> = [];
+    
+    try {
+      const unifiedSessionFile = path.join(DATA_ROOT, "sessions", "session.jsonl");
+      const unifiedStats = await fs.stat(unifiedSessionFile).catch(() => null);
+      if (unifiedStats) {
+        sessionFiles.push({
+          path: unifiedSessionFile,
+          size: unifiedStats.size,
+          accessible: true,
+        });
+      }
+    } catch { /* not found */ }
+    
+    // Check legacy per-domain session files
+    try {
+      const sessionsDir = path.join(DATA_ROOT, "sessions");
+      const entries = await fs.readdir(sessionsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const sessionFile = path.join(sessionsDir, entry.name, "session.jsonl");
+          const sessionStats = await fs.stat(sessionFile).catch(() => null);
+          if (sessionStats) {
+            sessionFiles.push({
+              path: sessionFile,
+              size: sessionStats.size,
+              accessible: true,
+            });
+          }
         }
       }
-    }
-  } catch { /* directory not found */ }
-  
-  return c.json({
-    status: totalCorrupted === 0 ? "healthy" : "degraded",
-    totalCorruptedLines: totalCorrupted,
-    corruptionStats: stats,
-    sessionFiles,
-    timestamp: Date.now(),
-  });
+    } catch { /* directory not found */ }
+    
+    return c.json({
+      status: totalCorrupted === 0 ? "healthy" : "degraded",
+      totalCorruptedLines: totalCorrupted,
+      corruptionStats: stats,
+      sessionFiles,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] GET /api/health/sessions failed:', message);
+    return c.json({ error: "Failed to check session health", details: message }, 500);
+  }
 });
 
 // Reset corruption stats (for testing/recovery)
 app.post("/api/health/sessions/reset", (c) => {
-  corruptionStats.clear();
-  return c.json({ success: true, message: "Corruption stats reset" });
+  try {
+    corruptionStats.clear();
+    return c.json({ success: true, message: "Corruption stats reset" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] POST /api/health/sessions/reset failed:', message);
+    return c.json({ error: "Failed to reset corruption stats", details: message }, 500);
+  }
 });
 
 // ── Domains API ───────────────────────────────────────────────────────────────
 
 app.get("/api/domains", async (c) => {
-  const domains = await readDomains();
-  const manager = globalThis.__majordomoManager;
-  return c.json({ domains, activeDomain: manager?.getDomain() ?? "general" });
+  try {
+    const domains = await readDomains();
+    const manager = globalThis.__majordomoManager;
+    return c.json({ domains, activeDomain: manager?.getDomain() ?? "general" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] GET /api/domains failed:', message);
+    return c.json({ error: "Failed to fetch domains", details: message }, 500);
+  }
 });
 
 app.post("/api/domains/:id/activate", async (c) => {
-  const domainId = c.req.param("id");
-  const manager = globalThis.__majordomoManager;
-
-  if (!manager) {
-    return c.json({ success: false, error: "Agent service not available" }, 503);
-  }
-
   try {
-    await manager.switchDomain(domainId);
-    return c.json({ success: true, domain: domainId });
+    const domainId = c.req.param("id");
+    const manager = globalThis.__majordomoManager;
+
+    if (!manager) {
+      return c.json({ success: false, error: "Agent service not available" }, 503);
+    }
+
+    try {
+      await manager.switchDomain(domainId);
+      return c.json({ success: true, domain: domainId });
+    } catch (err) {
+      return c.json({ success: false, error: String(err) }, 400);
+    }
   } catch (err) {
-    return c.json({ success: false, error: String(err) }, 400);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] POST /api/domains/:id/activate failed:', message);
+    return c.json({ success: false, error: "Failed to activate domain", details: message }, 500);
   }
 });
 
 // ── Messages API ──────────────────────────────────────────────────────────────
 
 app.get("/api/messages/:domain", async (c) => {
-  const domain = c.req.param("domain");
-  
-  // Validate domain ID format and existence to prevent path traversal
-  if (!isValidDomainId(domain)) {
-    return c.json({ error: "Invalid domain ID format" }, 400);
-  }
-  
-  const validDomains = await readDomains();
-  if (!validDomains.some(d => d.id === domain)) {
-    return c.json({ error: "Domain not found" }, 404);
-  }
-  
-  const limit = parseInt(c.req.query("limit") ?? "100");
-  const before = c.req.query("before") ? parseInt(c.req.query("before")!) : undefined;
+  try {
+    const domain = c.req.param("domain");
+    
+    // Validate domain ID format and existence to prevent path traversal
+    if (!isValidDomainId(domain)) {
+      return c.json({ error: "Invalid domain ID format" }, 400);
+    }
+    
+    const validDomains = await readDomains();
+    if (!validDomains.some(d => d.id === domain)) {
+      return c.json({ error: "Domain not found" }, 404);
+    }
+    
+    const limit = parseInt(c.req.query("limit") ?? "100");
+    const before = c.req.query("before") ? parseInt(c.req.query("before")!) : undefined;
 
-  const messages = await readSessionMessages(domain, limit, before);
-  return c.json({ messages, domain });
+    const messages = await readSessionMessages(domain, limit, before);
+    return c.json({ messages, domain });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] GET /api/messages/:domain failed:', message);
+    return c.json({ error: "Failed to fetch messages", details: message }, 500);
+  }
 });
 
 // POST a message to a domain (web UI → agent)
 app.post("/api/messages/:domain", async (c) => {
-  const domain = c.req.param("domain");
-  
-  // Validate domain ID format and existence to prevent path traversal
-  if (!isValidDomainId(domain)) {
-    return c.json({ error: "Invalid domain ID format" }, 400);
-  }
-  
-  const validDomains = await readDomains();
-  if (!validDomains.some(d => d.id === domain)) {
-    return c.json({ error: "Domain not found" }, 404);
-  }
-  
-  const body = await c.req.json();
-  const text: string = body.text;
+  try {
+    const domain = c.req.param("domain");
+    
+    // Validate domain ID format and existence to prevent path traversal
+    if (!isValidDomainId(domain)) {
+      return c.json({ error: "Invalid domain ID format" }, 400);
+    }
+    
+    const validDomains = await readDomains();
+    if (!validDomains.some(d => d.id === domain)) {
+      return c.json({ error: "Domain not found" }, 404);
+    }
+    
+    const body = await c.req.json();
+    const text: string = body.text;
 
-  if (!text?.trim()) {
-    return c.json({ error: "text is required" }, 400);
-  }
+    if (!text?.trim()) {
+      return c.json({ error: "text is required" }, 400);
+    }
 
-  const manager = globalThis.__majordomoManager;
+    const manager = globalThis.__majordomoManager;
 
-  if (!manager) {
-    return c.json({ error: "Agent service not available" }, 503);
-  }
+    if (!manager) {
+      return c.json({ error: "Agent service not available" }, 503);
+    }
 
-  if (manager.isStreaming()) {
-    return c.json({ error: "Session is busy, try again shortly" }, 409);
-  }
+    if (manager.isStreaming()) {
+      return c.json({ error: "Session is busy, try again shortly" }, 409);
+    }
 
-  if (manager.getDomain() !== domain) {
-    await manager.switchDomain(domain);
-  }
+    if (manager.getDomain() !== domain) {
+      await manager.switchDomain(domain);
+    }
 
-  // Fire and forget — client gets the response via SSE
-  manager.sendMessage(text, (delta) => {
-    webEvents.emit("agent:token", { domain, delta });
-  }).then((response) => {
-    webEvents.emit("agent:done", { domain, text: response });
-    // Relay agent response back to Telegram (best-effort)
+    // Fire and forget — client gets the response via SSE
+    manager.sendMessage(text, (delta) => {
+      webEvents.emit("agent:token", { domain, delta });
+    }).then((response) => {
+      webEvents.emit("agent:done", { domain, text: response });
+      // Relay agent response back to Telegram (best-effort)
+      const tg = (globalThis as Record<string, unknown>).__majordomoTelegram as
+        { sendToDomain: (d: string, t: string) => Promise<void> } | null;
+      tg?.sendToDomain(domain, response).catch(() => {});
+    }).catch((err) => {
+      webEvents.emit("agent:error", { domain, error: String(err) });
+    });
+
+    // Relay user message to Telegram (best-effort, tagged "(via web)")
     const tg = (globalThis as Record<string, unknown>).__majordomoTelegram as
       { sendToDomain: (d: string, t: string) => Promise<void> } | null;
-    tg?.sendToDomain(domain, response).catch(() => {});
-  }).catch((err) => {
-    webEvents.emit("agent:error", { domain, error: String(err) });
-  });
+    tg?.sendToDomain(domain, `(via web) ${text}`).catch(() => {});
 
-  // Relay user message to Telegram (best-effort, tagged "(via web)")
-  const tg = (globalThis as Record<string, unknown>).__majordomoTelegram as
-    { sendToDomain: (d: string, t: string) => Promise<void> } | null;
-  tg?.sendToDomain(domain, `(via web) ${text}`).catch(() => {});
-
-  return c.json({ queued: true });
+    return c.json({ queued: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] POST /api/messages/:domain failed:', message);
+    return c.json({ error: "Failed to send message", details: message }, 500);
+  }
 });
 
 // ── Widgets API ───────────────────────────────────────────────────────────────
 
 app.get("/api/widgets/:name", async (c) => {
-  const name = c.req.param("name");
-  const data = await getWidgetData(name);
-  if (data === null) return c.json({ error: "Widget not found" }, 404);
-  return c.json({ widget: name, data });
+  try {
+    const name = c.req.param("name");
+    const data = await getWidgetData(name);
+    if (data === null) return c.json({ error: "Widget not found" }, 404);
+    return c.json({ widget: name, data });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] GET /api/widgets/:name failed:', message);
+    return c.json({ error: "Failed to fetch widget data", details: message }, 500);
+  }
 });
 
 // Trigger a scheduled job immediately
@@ -780,77 +822,89 @@ app.post("/api/obsidian-sync", async (c) => {
 // Register a webhook job via: register_schedule tool with action_type="agent_prompt"
 // then set action_data to include a webhook_secret field.
 app.post("/webhooks/:secret", async (c) => {
-  const secret = c.req.param("secret");
-  const dbPath = path.join(DATA_ROOT, "scheduler.db");
-  let jobId: string | undefined;
   try {
-    const db = new Database(dbPath, { readonly: true });
-    // Find job whose action_data contains this secret
-    const jobs = db.prepare("SELECT * FROM jobs WHERE enabled = 1").all() as Array<Record<string, unknown>>;
-    db.close();
-    for (const job of jobs) {
-      try {
-        const d = JSON.parse(job.action_data as string);
-        if (d.webhook_secret === secret) { jobId = job.id as string; break; }
-      } catch { /* skip */ }
+    const secret = c.req.param("secret");
+    const dbPath = path.join(DATA_ROOT, "scheduler.db");
+    let jobId: string | undefined;
+    try {
+      const db = new Database(dbPath, { readonly: true });
+      // Find job whose action_data contains this secret
+      const jobs = db.prepare("SELECT * FROM jobs WHERE enabled = 1").all() as Array<Record<string, unknown>>;
+      db.close();
+      for (const job of jobs) {
+        try {
+          const d = JSON.parse(job.action_data as string);
+          if (d.webhook_secret === secret) { jobId = job.id as string; break; }
+        } catch { /* skip */ }
+      }
+    } catch { /* no DB yet */ }
+
+    if (!jobId) return c.json({ error: "Unknown webhook" }, 404);
+
+    const payload = await c.req.json().catch(() => ({}));
+    const manager = globalThis.__majordomoManager;
+
+    if (manager) {
+      await manager.switchDomain("general");
+      manager.sendMessage(
+        `Webhook triggered (job: ${jobId})\n\nPayload:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``
+      ).catch(() => {});
     }
-  } catch { /* no DB yet */ }
 
-  if (!jobId) return c.json({ error: "Unknown webhook" }, 404);
-
-  const payload = await c.req.json().catch(() => ({}));
-  const manager = globalThis.__majordomoManager;
-
-  if (manager) {
-    await manager.switchDomain("general");
-    manager.sendMessage(
-      `Webhook triggered (job: ${jobId})\n\nPayload:\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``
-    ).catch(() => {});
+    return c.json({ received: true, job: jobId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] POST /webhooks/:secret failed:', message);
+    return c.json({ error: "Failed to process webhook", details: message }, 500);
   }
-
-  return c.json({ received: true, job: jobId });
 });
 
 // Webhook trigger by job ID — Phase 2 implementation
 // POST /webhooks/jobs/:id to trigger a webhook-type job
 app.post("/webhooks/jobs/:id", async (c) => {
-  const jobId = c.req.param("id");
-  const dbPath = path.join(DATA_ROOT, "scheduler.db");
-  
-  let job: Record<string, unknown> | undefined;
   try {
-    const db = new Database(dbPath, { readonly: true });
-    job = db.prepare("SELECT * FROM jobs WHERE id = ? AND enabled = 1").get(jobId) as Record<string, unknown> | undefined;
-    db.close();
+    const jobId = c.req.param("id");
+    const dbPath = path.join(DATA_ROOT, "scheduler.db");
+    
+    let job: Record<string, unknown> | undefined;
+    try {
+      const db = new Database(dbPath, { readonly: true });
+      job = db.prepare("SELECT * FROM jobs WHERE id = ? AND enabled = 1").get(jobId) as Record<string, unknown> | undefined;
+      db.close();
+    } catch (err) {
+      return c.json({ error: "Scheduler database not available", details: String(err) }, 503);
+    }
+
+    if (!job) {
+      return c.json({ error: "Job not found or disabled", job_id: jobId }, 404);
+    }
+
+    // Verify this is a webhook-type job
+    const triggerType = (job.trigger_type as string) ?? 'cron';
+    if (triggerType !== 'webhook') {
+      return c.json({ error: "Job is not a webhook-triggered job", job_id: jobId, trigger_type: triggerType }, 400);
+    }
+
+    const payload = await c.req.json().catch(() => ({}));
+    
+    // Emit event for scheduler to execute the job
+    webEvents.emit('webhook:trigger', { jobId, payload });
+
+    // Record the trigger in runs table
+    try {
+      const db = new Database(dbPath);
+      db.prepare("INSERT INTO runs (job_id, ran_at, success) VALUES (?, datetime('now'), 1)").run(jobId);
+      db.close();
+    } catch {
+      // Non-fatal if we can't record the run
+    }
+
+    return c.json({ triggered: true, job: jobId, payload });
   } catch (err) {
-    return c.json({ error: "Scheduler database not available", details: String(err) }, 503);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] POST /webhooks/jobs/:id failed:', message);
+    return c.json({ error: "Failed to trigger webhook job", details: message }, 500);
   }
-
-  if (!job) {
-    return c.json({ error: "Job not found or disabled", job_id: jobId }, 404);
-  }
-
-  // Verify this is a webhook-type job
-  const triggerType = (job.trigger_type as string) ?? 'cron';
-  if (triggerType !== 'webhook') {
-    return c.json({ error: "Job is not a webhook-triggered job", job_id: jobId, trigger_type: triggerType }, 400);
-  }
-
-  const payload = await c.req.json().catch(() => ({}));
-  
-  // Emit event for scheduler to execute the job
-  webEvents.emit('webhook:trigger', { jobId, payload });
-
-  // Record the trigger in runs table
-  try {
-    const db = new Database(dbPath);
-    db.prepare("INSERT INTO runs (job_id, ran_at, success) VALUES (?, datetime('now'), 1)").run(jobId);
-    db.close();
-  } catch {
-    // Non-fatal if we can't record the run
-  }
-
-  return c.json({ triggered: true, job: jobId, payload });
 });
 
 
