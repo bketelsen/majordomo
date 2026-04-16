@@ -934,16 +934,19 @@ app.get("/sw.js", async (c) => {
 });
 
 app.get("/apple-touch-icon.png", async (c) => {
-  if (isCompiledBinary()) {
-    return new Response(await getAppleTouchIcon() as unknown as BodyInit, {
-      headers: { "Content-Type": "image/png" },
-    });
-  }
   try {
+    // Always read from STATIC_ROOT — works in both compiled and dev mode
     const content = await fs.readFile(path.join(STATIC_ROOT, "apple-touch-icon.png"));
-    return new Response(content, {
-      headers: { "Content-Type": "image/png" },
-    });
+    return new Response(content, { headers: { "Content-Type": "image/png" } });
+  } catch {
+    return c.text("Icon not found", 404);
+  }
+});
+
+app.get("/icon-512.png", async (c) => {
+  try {
+    const content = await fs.readFile(path.join(STATIC_ROOT, "icon-512.png"));
+    return new Response(content, { headers: { "Content-Type": "image/png" } });
   } catch {
     return c.text("Icon not found", 404);
   }
