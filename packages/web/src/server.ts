@@ -177,6 +177,31 @@ interface CorruptionStats {
 
 const corruptionStats = new Map<string, CorruptionStats>();
 const MAX_CORRUPTION_EXAMPLES = 5;
+const CORRUPTION_STATS_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+
+/**
+ * Remove corruption stats older than 7 days to prevent unbounded memory growth.
+ * Called automatically when new corruption is detected.
+ */
+function pruneCorruptionStats(): void {
+  const now = Date.now();
+  const expiredKeys: string[] = [];
+  
+  for (const [key, stats] of corruptionStats.entries()) {
+    const lastTimestamp = stats.lastCorruptionTimestamp ?? 0;
+    if (now - lastTimestamp > CORRUPTION_STATS_TTL) {
+      expiredKeys.push(key);
+    }
+  }
+  
+  for (const key of expiredKeys) {
+    corruptionStats.delete(key);
+  }
+  
+  if (expiredKeys.length > 0) {
+    console.log(`[corruption-stats] Pruned ${expiredKeys.length} stale corruption entries (>7 days old)`);
+  }
+}
 
 const messageCache = new Map<string, CachedMessages>();
 const CACHE_TTL = 5000; // 5 seconds
@@ -431,6 +456,9 @@ function parseMessageEntry(
     stats.corruptedLines++;
     stats.lastCorruptionTimestamp = Date.now();
     
+    // Prune stale corruption stats to prevent unbounded growth
+    pruneCorruptionStats();
+    
     // Keep limited examples
     if (stats.examples.length < MAX_CORRUPTION_EXAMPLES) {
       stats.examples.push({
@@ -664,6 +692,28 @@ app.post("/api/health/sessions/reset", (c) => {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[api] POST /api/health/sessions/reset failed:', message);
     return c.json({ error: "Failed to reset corruption stats", details: message }, 500);
+  }
+});
+
+// Cleanup stale corruption stats (older than 7 days)
+app.post("/api/health/sessions/cleanup", (c) => {
+  try {
+    const beforeCount = corruptionStats.size;
+    pruneCorruptionStats();
+    const afterCount = corruptionStats.size;
+    const removed = beforeCount - afterCount;
+    
+    return c.json({ 
+      success: true, 
+      message: `Cleaned up ${removed} stale corruption entries`, 
+      beforeCount,
+      afterCount,
+      removed
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] POST /api/health/sessions/cleanup failed:', message);
+    return c.json({ error: "Failed to cleanup corruption stats", details: message }, 500);
   }
 });
 
