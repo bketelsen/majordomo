@@ -78,14 +78,6 @@ interface RunRecord {
   retries: number;
 }
 
-interface WorkflowStep {
-  id: string;
-  agent: string;
-  depends_on?: string;
-  iterate_over?: string;
-  input: Record<string, string>;
-}
-
 interface WorkflowStepRecord {
   id: string;
   workflowId: string;
