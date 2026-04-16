@@ -28,8 +28,8 @@ import { Database } from "bun:sqlite";
 import { readDomainsManifest, type CogDomain } from "../../shared/lib/domains.ts";
 import "../../shared/types.ts";
 
-import { loadPlugins, registerPlugins, type LoadedPlugin } from "./plugin-loader.ts";
 import { indexHTML, isCompiledBinary, manifest, serviceWorker, getAppleTouchIcon, getIcon512, reactIndexHTML, appJs, appCss } from "./assets.ts";
+import { request as httpRequest } from "node:http";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -40,14 +40,6 @@ const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordo
 const MEMORY_ROOT = path.join(MAJORDOMO_STATE, "memory");
 const DATA_ROOT = path.join(MAJORDOMO_STATE, "data");
 const STATIC_ROOT = path.join(import.meta.dirname, "..", "static");
-// In compiled binary, import.meta.dirname is inside /$bunfs/ — plugins must live externally
-// Check MAJORDOMO_STATE/plugins first (external, works in compiled mode), fallback to source path
-const PLUGIN_DIR_EXTERNAL = path.join(MAJORDOMO_STATE, "plugins");
-const PLUGIN_DIR_SOURCE = path.join(import.meta.dirname, "..", "plugins");
-const PLUGIN_DIR = await (async () => {
-  const externalExists = await fs.access(PLUGIN_DIR_EXTERNAL).then(() => true).catch(() => false);
-  return externalExists ? PLUGIN_DIR_EXTERNAL : PLUGIN_DIR_SOURCE;
-})();
 
 // ── In-process event bus (agent pushes events here, WS clients consume) ───────
 
@@ -561,36 +553,415 @@ function isValidDomainId(id: string): boolean {
   return /^[a-z0-9/_-]+$/.test(id) && !id.includes('..');
 }
 
-// ── Plugin registry ───────────────────────────────────────────────────────────
+// ── Widget compute functions ────────────────────────────────────────────────────
 
-let loadedPlugins: LoadedPlugin[] = [];
-let pluginsLoaded = false;
+// ── Container management (Docker/Incus) ───────────────────────────────────────
 
-// ── Widget data ────────────────────────────────────────────────────────────────
+interface ContainerInfo {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  running: boolean;
+  ports: string[];
+  runtime: "docker" | "incus";
+}
 
-async function getWidgetData(name: string): Promise<unknown> {
-  // Try plugin first
-  const plugin = loadedPlugins.find(p => p.manifest.id === name);
-  if (plugin) {
-    const widgetCtx = {
-      id: plugin.manifest.id,
-      config: plugin.manifest.config,
-      dataDir: path.join(DATA_ROOT, "widgets", plugin.manifest.id),
-      broadcast: (event: string, data: unknown) => webEvents.emit(event, data),
-      subscribe: (event: string, handler: (data: unknown) => void) => webEvents.on(event, handler),
-      db: {
-        open: async (name: string) => {
-          await fs.mkdir(path.join(DATA_ROOT, "widgets", plugin.manifest.id), { recursive: true });
-          const dbPath = path.join(DATA_ROOT, "widgets", plugin.manifest.id, `${name}.db`);
-          return new Database(dbPath);
-        },
+async function unixRequest(
+  socketPath: string,
+  path: string,
+  method = "GET",
+  body?: string
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        socketPath,
+        path,
+        method,
+        headers: body ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } : {},
       },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            resolve(data);
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+const DOCKER_SOCK = "/var/run/docker.sock";
+const INCUS_SOCK = "/var/lib/incus/unix.socket";
+
+async function listDockerContainers(): Promise<ContainerInfo[]> {
+  try {
+    const data = await unixRequest(DOCKER_SOCK, "/containers/json?all=1") as Array<Record<string, unknown>>;
+    return data.map((c) => {
+      const names = (c.Names as string[]) ?? [];
+      const ports = ((c.Ports as Array<{ PublicPort?: number; PrivatePort: number; Type: string }>) ?? [])
+        .filter((p) => p.PublicPort)
+        .map((p) => `${p.PublicPort}:${p.PrivatePort}/${p.Type}`);
+      return {
+        id: (c.Id as string).slice(0, 12),
+        name: names[0]?.replace(/^\//, "") ?? "unknown",
+        image: c.Image as string,
+        status: c.Status as string,
+        running: c.State === "running",
+        ports,
+        runtime: "docker",
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function listIncusContainers(): Promise<ContainerInfo[]> {
+  try {
+    const data = await unixRequest(INCUS_SOCK, "/1.0/instances?recursion=1") as {
+      metadata: Array<{ name: string; status: string; type: string; description: string }>;
     };
-    return await plugin.server.getData(widgetCtx);
+    return (data.metadata ?? []).map((inst) => ({
+      id: inst.name,
+      name: inst.name,
+      image: inst.description || inst.type,
+      status: inst.status,
+      running: inst.status.toLowerCase() === "running",
+      ports: [],
+      runtime: "incus",
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function listAllContainers(): Promise<ContainerInfo[]> {
+  const [docker, incus] = await Promise.all([
+    listDockerContainers(),
+    listIncusContainers(),
+  ]);
+  return [...docker, ...incus].sort((a, b) => {
+    if (a.running !== b.running) return a.running ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+async function dockerAction(id: string, action: "start" | "stop" | "restart"): Promise<boolean> {
+  try {
+    await unixRequest(DOCKER_SOCK, `/containers/${id}/${action}`, "POST");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function incusAction(name: string, action: "start" | "stop" | "restart"): Promise<boolean> {
+  try {
+    await unixRequest(
+      INCUS_SOCK,
+      `/1.0/instances/${name}/state`,
+      "PUT",
+      JSON.stringify({ action, timeout: 30 })
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function computeContainersWidget(): Promise<unknown> {
+  const containers = await listAllContainers();
+  return {
+    containers,
+    updatedAt: Date.now(),
+    meta: {
+      total: containers.length,
+      running: containers.filter(c => c.running).length,
+    },
+  };
+}
+
+// ── Priorities widget ─────────────────────────────────────────────────────────
+
+interface PriorityItem {
+  domain: string;
+  task: string;
+  priority: string;
+  due?: string;
+}
+
+async function computePriorities(): Promise<PriorityItem[]> {
+  const domains = await readDomains();
+  const priorities: PriorityItem[] = [];
+
+  for (const domain of domains) {
+    try {
+      const content = await fs.readFile(path.join(MEMORY_ROOT, domain.path, "action-items.md"), "utf-8");
+      for (const line of content.split("\n")) {
+        if (!line.startsWith("- [ ]")) continue;
+        const taskText = line.slice(5).split(" | ")[0].trim();
+        const priMatch = line.match(/\bpri:(critical|high|med|low)\b/);
+        const dueMatch = line.match(/\bdue:(\d{4}-\d{2}-\d{2})\b/);
+        const priority = priMatch?.[1] ?? "med";
+        if (priority === "critical" || priority === "high") {
+          priorities.push({ domain: domain.id, task: taskText, priority, due: dueMatch?.[1] });
+        }
+      }
+    } catch { /* domain may not have action-items */ }
   }
 
-  // Fallback to legacy widgets
+  const order = { critical: 0, high: 1, med: 2, low: 3 };
+  return priorities.sort((a, b) => {
+    const po = (order[a.priority as keyof typeof order] ?? 2) - (order[b.priority as keyof typeof order] ?? 2);
+    if (po !== 0) return po;
+    if (a.due && b.due) return a.due.localeCompare(b.due);
+    return a.due ? -1 : b.due ? 1 : 0;
+  });
+}
+
+async function computePrioritiesWidget(): Promise<unknown> {
+  const items = await computePriorities();
+  return {
+    items,
+    updatedAt: Date.now(),
+    meta: {
+      total: items.length,
+      critical: items.filter(i => i.priority === "critical").length,
+      high: items.filter(i => i.priority === "high").length,
+    },
+  };
+}
+
+async function markPriorityDone(domain: string, task: string): Promise<{ ok: boolean; error?: string }> {
+  const filePath = path.join(MEMORY_ROOT, domain, "action-items.md");
+  try {
+    const content = await fs.readFile(filePath, "utf-8");
+    const escaped = task.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const updated = content.replace(new RegExp(`^- \\[ \\] ${escaped}`, "m"), `- [x] ${task} (done ${new Date().toISOString().slice(0, 10)})`);
+    if (updated === content) return { ok: false, error: "Task not found" };
+    await fs.writeFile(filePath, updated);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+// ── Subagents widget ──────────────────────────────────────────────────────────
+
+async function computeSubagentsWidget(): Promise<unknown> {
+  const dbPath = path.join(DATA_ROOT, "subagents.db");
+  try {
+    const db = new Database(dbPath, { readonly: true });
+    const rows = db.prepare(
+      "SELECT * FROM runs ORDER BY started_at DESC LIMIT 50"
+    ).all() as Array<Record<string, unknown>>;
+    db.close();
+    
+    const runs = rows.map(r => ({
+      id: r.id,
+      agent: r.agent,
+      status: r.status,
+      provider: r.provider ?? null,
+      model: r.model ?? null,
+      startedAt: r.started_at,
+      finishedAt: r.finished_at ?? null,
+      retries: r.retries,
+      outputPreview: r.output ? String(r.output).slice(0, 200) : null,
+      error: r.error ?? null,
+    }));
+    
+    return { 
+      runs, 
+      updatedAt: Date.now(),
+      meta: {
+        total: runs.length,
+        completed: runs.filter(r => r.status === 'done').length,
+        failed: runs.filter(r => r.status === 'failed').length,
+      },
+    };
+  } catch (err) {
+    console.error("[subagents] Failed to query database:", err);
+    return { 
+      runs: [], 
+      updatedAt: Date.now(),
+      meta: { error: String(err) },
+    };
+  }
+}
+
+// ── Schedules widget ──────────────────────────────────────────────────────────
+
+async function computeSchedulesWidget(): Promise<unknown> {
+  const dbPath = path.join(DATA_ROOT, "scheduler.db");
+  try {
+    const db = new Database(dbPath, { readonly: true });
+    const jobs = db.prepare(`
+      SELECT j.id, j.cron, j.action_type, j.action_data, j.enabled,
+             MAX(r.ran_at) as last_ran, SUM(CASE WHEN r.success=1 THEN 1 ELSE 0 END) as run_count
+      FROM jobs j
+      LEFT JOIN runs r ON j.id = r.job_id
+      GROUP BY j.id
+      ORDER BY j.id
+    `).all() as Array<Record<string, unknown>>;
+    db.close();
+
+    return {
+      jobs: jobs.map(j => ({
+        id: j.id,
+        cron: j.cron,
+        action: (() => {
+          try { const d = JSON.parse(j.action_data as string); return d.command ?? d.message ?? String(j.action_data); }
+          catch { return String(j.action_data); }
+        })(),
+        enabled: Boolean(j.enabled),
+        lastRan: j.last_ran ?? null,
+        runCount: j.run_count ?? 0,
+      })),
+      updatedAt: Date.now(),
+      meta: { total: jobs.length, enabled: jobs.filter(j => j.enabled).length },
+    };
+  } catch (err) {
+    return { jobs: [], updatedAt: Date.now(), meta: { error: String(err) } };
+  }
+}
+
+// ── Workflows widget ──────────────────────────────────────────────────────────
+
+interface WorkflowStepRow {
+  id: string;
+  workflow_id: string;
+  workflow_name: string;
+  step_id: string;
+  agent: string;
+  status: string;
+  input?: string;
+  output?: string;
+  error?: string;
+  started_at?: number;
+  finished_at?: number;
+  iteration_index?: number;
+  iteration_total?: number;
+  created_at: number;
+}
+
+interface WorkflowStep {
+  id: string;
+  stepId: string;
+  agent: string;
+  status: string;
+  error: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  iterationIndex: number | null;
+  iterationTotal: number | null;
+}
+
+interface WorkflowSummary {
+  workflowId: string;
+  workflowName: string;
+  totalSteps: number;
+  completedSteps: number;
+  failedSteps: number;
+  status: 'running' | 'done' | 'failed';
+  createdAt: number;
+  steps: WorkflowStep[];
+}
+
+async function computeWorkflowsWidget(): Promise<unknown> {
+  const dbPath = path.join(DATA_ROOT, "subagents.db");
+  try {
+    const db = new Database(dbPath, { readonly: true });
+    db.exec("PRAGMA foreign_keys = ON");
+    
+    const maxWorkflows = 10;
+    
+    const workflows = db.prepare(`
+      SELECT DISTINCT workflow_id, workflow_name, MIN(created_at) as created_at
+      FROM workflow_steps
+      GROUP BY workflow_id
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(maxWorkflows) as Array<{ workflow_id: string; workflow_name: string; created_at: number }>;
+    
+    const workflowSummaries: WorkflowSummary[] = workflows.map(w => {
+      const steps = db.prepare(
+        "SELECT * FROM workflow_steps WHERE workflow_id = ? ORDER BY created_at ASC"
+      ).all(w.workflow_id) as WorkflowStepRow[];
+      
+      const completed = steps.filter(s => s.status === 'done').length;
+      const failed = steps.filter(s => s.status === 'failed').length;
+      const running = steps.filter(s => s.status === 'running' || s.status === 'pending').length;
+      
+      let status: 'running' | 'done' | 'failed' = 'done';
+      if (running > 0) status = 'running';
+      else if (failed > 0) status = 'failed';
+      
+      return {
+        workflowId: w.workflow_id,
+        workflowName: w.workflow_name,
+        totalSteps: steps.length,
+        completedSteps: completed,
+        failedSteps: failed,
+        status,
+        createdAt: w.created_at,
+        steps: steps.map(s => ({
+          id: s.id,
+          stepId: s.step_id,
+          agent: s.agent,
+          status: s.status,
+          error: s.error ?? null,
+          startedAt: s.started_at ?? null,
+          finishedAt: s.finished_at ?? null,
+          iterationIndex: s.iteration_index ?? null,
+          iterationTotal: s.iteration_total ?? null,
+        })),
+      };
+    });
+    
+    db.close();
+    
+    return { 
+      workflows: workflowSummaries,
+      updatedAt: Date.now(),
+      meta: {
+        total: workflowSummaries.length,
+        running: workflowSummaries.filter(w => w.status === 'running').length,
+        failed: workflowSummaries.filter(w => w.status === 'failed').length,
+      },
+    };
+  } catch (err) {
+    console.error("[workflows] Failed to query database:", err);
+    return { 
+      workflows: [], 
+      updatedAt: Date.now(),
+      meta: { error: String(err) },
+    };
+  }
+}
+
+// ── Widget data getter ────────────────────────────────────────────────────────
+
+async function getWidgetData(name: string): Promise<unknown> {
   switch (name) {
+    case "priorities":
+      return await computePrioritiesWidget();
+    case "containers":
+      return await computeContainersWidget();
+    case "subagents":
+      return await computeSubagentsWidget();
+    case "schedules":
+      return await computeSchedulesWidget();
+    case "workflows":
+      return await computeWorkflowsWidget();
     default: {
       // Try file cache for unknown widget names
       const cachePath = path.join(DATA_ROOT, "widgets", `${name}.json`);
@@ -611,20 +982,6 @@ async function getWidgetData(name: string): Promise<unknown> {
 // ── Hono app ───────────────────────────────────────────────────────────────────
 
 const app = new Hono();
-
-/**
- * Initialize plugins — MUST be called before server starts accepting requests
- * to prevent race condition where widgets return 404 before plugins load.
- */
-async function initializePlugins(): Promise<void> {
-  if (pluginsLoaded) return; // Already initialized
-  
-  console.log('[web] Loading plugins...');
-  loadedPlugins = await loadPlugins(PLUGIN_DIR);
-  registerPlugins(app, loadedPlugins, { dataRoot: DATA_ROOT, webEvents });
-  pluginsLoaded = true;
-  console.log(`[web] ✓ Plugins loaded (${loadedPlugins.length} total)`);
-}
 
 // Health
 app.get("/health", (c) => c.json({ status: "ok", ts: Date.now() }));
@@ -858,8 +1215,106 @@ app.get("/api/widgets/:name", async (c) => {
   }
 });
 
-// Trigger a scheduled job immediately
-// POST /api/schedules/:id/trigger moved to schedules plugin
+// Widget action routes
+app.post("/api/priorities/done", async (c) => {
+  try {
+    const { domain, task } = await c.req.json();
+    if (!domain || !task) return c.json({ error: "domain and task required" }, 400);
+    if (!isValidDomainId(domain)) return c.json({ error: "Invalid domain ID format" }, 400);
+    const result = await markPriorityDone(domain, task);
+    return result.ok ? c.json({ ok: true }) : c.json({ error: result.error }, 400);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] POST /api/priorities/done failed:', message);
+    return c.json({ error: "Failed to mark priority done", details: message }, 500);
+  }
+});
+
+app.post("/api/containers/:runtime/:id/:action", async (c) => {
+  try {
+    const { runtime, id, action } = c.req.param();
+    
+    if (!["start", "stop", "restart"].includes(action)) {
+      return c.json({ error: "Invalid action" }, 400);
+    }
+    
+    const act = action as "start" | "stop" | "restart";
+    let ok = false;
+    
+    if (runtime === "docker") {
+      ok = await dockerAction(id, act);
+    } else if (runtime === "incus") {
+      ok = await incusAction(id, act);
+    } else {
+      return c.json({ error: "Unknown runtime" }, 400);
+    }
+    
+    return c.json({ ok });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] POST /api/containers/:runtime/:id/:action failed:', message);
+    return c.json({ error: "Failed to control container", details: message }, 500);
+  }
+});
+
+app.post("/api/schedules/:id/trigger", async (c) => {
+  try {
+    const jobId = c.req.param("id");
+    const manager = globalThis.__majordomoManager;
+
+    if (!manager) return c.json({ error: "Agent not available" }, 503);
+
+    const dbPath = path.join(DATA_ROOT, "scheduler.db");
+    try {
+      const db = new Database(dbPath, { readonly: true });
+      const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId) as Record<string, unknown> | undefined;
+      db.close();
+
+      if (!job) return c.json({ error: "Job not found" }, 404);
+
+      const data = JSON.parse(job.action_data as string);
+      let msg: string;
+
+      if (job.action_type === "pi_command") {
+        const cmd = data.command as string;
+        const skillMatch = cmd.match(/^\/cog-(\w+)$/);
+        if (skillMatch) {
+          const projectRoot = (process.env.MAJORDOMO_HOME
+            ? path.join(process.env.MAJORDOMO_HOME, "current")
+            : process.cwd());
+          const skillFile = path.join(projectRoot, ".claude", "commands", `${skillMatch[1]}.md`);
+          try {
+            const instructions = await fs.readFile(skillFile, "utf-8");
+            msg = `Please execute the following COG pipeline skill. Memory root: \`${path.join(MAJORDOMO_STATE, "memory")}\`\n\n---\n\n${instructions}`;
+          } catch {
+            msg = cmd;
+          }
+        } else {
+          msg = cmd;
+        }
+      } else {
+        msg = data.message;
+      }
+
+      manager.sendMessage(msg).catch((err) => {
+        console.error("[schedules] trigger sendMessage failed:", err);
+      });
+      return c.json({ triggered: true, job: jobId });
+    } catch (err) {
+      console.error("[schedules] Failed to trigger job:", err);
+      return c.json({ error: String(err) }, 500);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[api] POST /api/schedules/:id/trigger failed:', message);
+    return c.json({ error: "Failed to trigger schedule", details: message }, 500);
+  }
+});
+
+// Return empty plugins list for backward compatibility
+app.get("/api/plugins", (c) => {
+  return c.json({ plugins: [] });
+});
 
 // ── Obsidian sync API ────────────────────────────────────────────────
 
@@ -1205,7 +1660,7 @@ app.get("*", async (c) => {
 
 // ── Export for in-process use from service.ts ─────────────────────────────────
 
-export { app, PORT, initializePlugins, websocketHandler };
+export { app, PORT, websocketHandler };
 
 // ── WebSocket PTY handler ────────────────────────────────────────────────────
 
@@ -1320,7 +1775,6 @@ const websocketHandler = {
 // ── Standalone entry (bun packages/web/src/server.ts) ────────────────────────
 
 if (import.meta.main) {
-  await initializePlugins();
 
   // Use Bun.serve for WebSocket support
   Bun.serve({

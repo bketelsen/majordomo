@@ -18,7 +18,7 @@ import { serve } from "@hono/node-server";
 import { DomainContextManager, sharedEventBus } from "./lib/domain-context-manager.ts";
 import { TelegramBot } from "./lib/telegram-bot.ts";
 import { runPersonaWizardIfNeeded } from "./lib/persona-wizard.ts";
-import { app as webApp, PORT as WEB_PORT, webEvents, initializePlugins, websocketHandler } from "../web/src/server.ts";
+import { app as webApp, PORT as WEB_PORT, webEvents, websocketHandler } from "../web/src/server.ts";
 import { isCompiledBinary, defaultAgents, defaultWorkflows, personaContent } from "../web/src/assets.ts";
 import { createLogger } from "./lib/logger.ts";
 import "../shared/types.ts";
@@ -169,9 +169,6 @@ sharedEventBus.on("workflow:complete", (data: unknown) => webEvents.emit("workfl
 
 // ── Web server (in-process) ───────────────────────────────────────────────────
 
-// Initialize plugins BEFORE starting server to prevent race condition
-// where widget requests arrive before plugins finish loading
-await initializePlugins();
 
 // TLS cert paths — use Tailscale certs if available for direct HTTPS without proxy
 const TLS_CERT = process.env.TLS_CERT_FILE ?? path.join(MAJORDOMO_STATE, 'tls', 'framework.goat-snake.ts.net.crt');
