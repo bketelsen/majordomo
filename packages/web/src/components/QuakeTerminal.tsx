@@ -13,6 +13,8 @@ export const QuakeTerminal: React.FC = () => {
   const terminalInstanceRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const reconnectDelayRef = useRef<number>(1000); // Start at 1 second
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     // Initialize terminal on mount
@@ -62,6 +64,10 @@ export const QuakeTerminal: React.FC = () => {
 
     return () => {
       terminal.dispose();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       if (socketRef.current) {
         socketRef.current.close();
       }
@@ -107,6 +113,8 @@ export const QuakeTerminal: React.FC = () => {
 
     socket.onopen = () => {
       console.log('[term] Connected');
+      // Reset reconnection delay on successful connection
+      reconnectDelayRef.current = 1000;
       if (terminalInstanceRef.current) {
         terminalInstanceRef.current.write('\r\n\x1b[32m[Terminal connected]\x1b[0m\r\n');
         // Send initial resize
@@ -149,6 +157,23 @@ export const QuakeTerminal: React.FC = () => {
         terminalInstanceRef.current.write('\r\n\x1b[33m[Connection closed]\x1b[0m\r\n');
       }
       socketRef.current = null;
+
+      // Attempt reconnection with exponential backoff if terminal is open
+      if (isOpen) {
+        const delay = reconnectDelayRef.current;
+        console.log(`[term] Reconnecting in ${delay}ms...`);
+        if (terminalInstanceRef.current) {
+          terminalInstanceRef.current.write(
+            `\r\n\x1b[33m[Reconnecting in ${delay / 1000}s...]\x1b[0m\r\n`
+          );
+        }
+
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectWebSocket();
+          // Increase delay exponentially, max 8 seconds
+          reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 8000);
+        }, delay);
+      }
     };
   };
 
