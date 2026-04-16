@@ -99,7 +99,10 @@ const SCHEDULER_MIGRATIONS: Migration[] = [
     version: 2,
     name: "add_trigger_type_column",
     up: (db) => {
-      db.exec(`ALTER TABLE jobs ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'cron'`);
+      const cols = db.prepare("PRAGMA table_info(jobs)").all() as {name: string}[];
+      if (!cols.some(c => c.name === 'trigger_type')) {
+        db.exec(`ALTER TABLE jobs ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'cron'`);
+      }
     },
   },
 ];

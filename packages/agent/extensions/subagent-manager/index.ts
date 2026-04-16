@@ -178,15 +178,20 @@ const RUNS_MIGRATIONS: Migration[] = [
     version: 2,
     name: "add_stderr_column",
     up: (db) => {
-      db.exec(`ALTER TABLE runs ADD COLUMN stderr TEXT`);
+      // Idempotent: check column exists before adding
+      const cols = db.prepare("PRAGMA table_info(runs)").all() as {name: string}[];
+      if (!cols.some(c => c.name === 'stderr')) {
+        db.exec(`ALTER TABLE runs ADD COLUMN stderr TEXT`);
+      }
     },
   },
   {
     version: 3,
     name: "add_provider_and_model_columns",
     up: (db) => {
-      db.exec(`ALTER TABLE runs ADD COLUMN provider TEXT`);
-      db.exec(`ALTER TABLE runs ADD COLUMN model TEXT`);
+      const cols = db.prepare("PRAGMA table_info(runs)").all() as {name: string}[];
+      if (!cols.some(c => c.name === 'provider')) db.exec(`ALTER TABLE runs ADD COLUMN provider TEXT`);
+      if (!cols.some(c => c.name === 'model')) db.exec(`ALTER TABLE runs ADD COLUMN model TEXT`);
     },
   },
   {
