@@ -173,9 +173,20 @@ sharedEventBus.on("workflow:complete", (data: unknown) => webEvents.emit("workfl
 // where widget requests arrive before plugins finish loading
 await initializePlugins();
 
+// TLS cert paths — use Tailscale certs if available for direct HTTPS without proxy
+const TLS_CERT = process.env.TLS_CERT_FILE ?? path.join(MAJORDOMO_STATE, 'tls', 'framework.goat-snake.ts.net.crt');
+const TLS_KEY  = process.env.TLS_KEY_FILE  ?? path.join(MAJORDOMO_STATE, 'tls', 'framework.goat-snake.ts.net.key');
+const tlsAvailable = await fs.access(TLS_CERT).then(() => true).catch(() => false);
+
 // Use Bun.serve for native WebSocket support (/term PTY endpoint)
 Bun.serve({
   port: WEB_PORT,
+  ...(tlsAvailable ? {
+    tls: {
+      cert: Bun.file(TLS_CERT),
+      key: Bun.file(TLS_KEY),
+    }
+  } : {}),
   fetch(req, server) {
     const url = new URL(req.url);
     if (url.pathname === '/term') {
@@ -187,7 +198,8 @@ Bun.serve({
   },
   websocket: websocketHandler,
 });
-logger.info("Dashboard listening", { url: `http://localhost:${WEB_PORT}` });
+logger.info("Dashboard listening", { url: `${tlsAvailable ? 'https' : 'http'}://localhost:${WEB_PORT}` });
+if (tlsAvailable) logger.info("TLS enabled", { cert: TLS_CERT });
 
 // ── Telegram bot (optional) ───────────────────────────────────────────────────
 
