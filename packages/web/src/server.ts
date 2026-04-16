@@ -27,9 +27,14 @@ import { EventEmitter } from "node:events";
 import { Database } from "bun:sqlite";
 import { readDomainsManifest, type CogDomain } from "../../shared/lib/domains.ts";
 import "../../shared/types.ts";
+import { createLogger } from "../../agent/lib/logger.ts";
 
 import { indexHTML, isCompiledBinary, manifest, serviceWorker, getAppleTouchIcon, getIcon512, reactIndexHTML, appJs, appCss } from "./assets.ts";
 import { request as httpRequest } from "node:http";
+
+// ── Logger ────────────────────────────────────────────────────────────────────
+
+const logger = createLogger({ context: { component: "web-server" } });
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -191,7 +196,7 @@ function pruneCorruptionStats(): void {
   }
   
   if (expiredKeys.length > 0) {
-    console.log(`[corruption-stats] Pruned ${expiredKeys.length} stale corruption entries (>7 days old)`);
+    logger.info("Pruned stale corruption entries", { pruned: expiredKeys.length, ttl: "7 days" });
   }
 }
 
@@ -233,7 +238,7 @@ function pruneExpiredCache(): void {
   }
   
   if (expiredKeys.length > 0) {
-    console.log(`[cache] Pruned ${expiredKeys.length} expired cache entries`);
+    logger.info("Pruned expired cache entries", { pruned: expiredKeys.length });
   }
 }
 
@@ -461,12 +466,13 @@ function parseMessageEntry(
     }
     
     // Log warning with context
-    console.warn(
-      `[session-corruption] Malformed JSONL line in ${sessionFile || domain}` +
-      (lineNumber ? ` at line ${lineNumber}` : '') +
-      `\n  Error: ${errorMessage}` +
-      `\n  Preview: ${preview}`
-    );
+    logger.warn("Malformed JSONL line detected", {
+      sessionFile: sessionFile || domain,
+      domain,
+      lineNumber: lineNumber ?? -1,
+      error: errorMessage,
+      preview,
+    });
     
     // Emit event for monitoring/alerting
     webEvents.emit('session:corruption_detected', {
@@ -789,7 +795,7 @@ async function computeSubagentsWidget(): Promise<unknown> {
       },
     };
   } catch (err) {
-    console.error("[subagents] Failed to query database:", err);
+    logger.error("Failed to query subagents database", err instanceof Error ? err : { error: String(err) });
     return { 
       runs: [], 
       updatedAt: Date.now(),
@@ -939,7 +945,7 @@ async function computeWorkflowsWidget(): Promise<unknown> {
       },
     };
   } catch (err) {
-    console.error("[workflows] Failed to query database:", err);
+    logger.error("Failed to query workflows database", err instanceof Error ? err : { error: String(err) });
     return { 
       workflows: [], 
       updatedAt: Date.now(),
@@ -1035,7 +1041,7 @@ app.get("/api/health/sessions", async (c) => {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] GET /api/health/sessions failed:', message);
+    logger.error("GET /api/health/sessions failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to check session health", details: message }, 500);
   }
 });
@@ -1047,7 +1053,7 @@ app.post("/api/health/sessions/reset", (c) => {
     return c.json({ success: true, message: "Corruption stats reset" });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] POST /api/health/sessions/reset failed:', message);
+    logger.error("POST /api/health/sessions/reset failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to reset corruption stats", details: message }, 500);
   }
 });
@@ -1069,7 +1075,7 @@ app.post("/api/health/sessions/cleanup", (c) => {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] POST /api/health/sessions/cleanup failed:', message);
+    logger.error("POST /api/health/sessions/cleanup failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to cleanup corruption stats", details: message }, 500);
   }
 });
@@ -1083,7 +1089,7 @@ app.get("/api/domains", async (c) => {
     return c.json({ domains, activeDomain: manager?.getDomain() ?? "general" });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] GET /api/domains failed:', message);
+    logger.error("GET /api/domains failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to fetch domains", details: message }, 500);
   }
 });
@@ -1105,7 +1111,7 @@ app.post("/api/domains/:id/activate", async (c) => {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] POST /api/domains/:id/activate failed:', message);
+    logger.error("POST /api/domains/:id/activate failed", err instanceof Error ? err : { error: message });
     return c.json({ success: false, error: "Failed to activate domain", details: message }, 500);
   }
 });
@@ -1133,7 +1139,7 @@ app.get("/api/messages/:domain", async (c) => {
     return c.json({ messages, domain });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] GET /api/messages/:domain failed:', message);
+    logger.error("GET /api/messages/:domain failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to fetch messages", details: message }, 500);
   }
 });
@@ -1195,7 +1201,7 @@ app.post("/api/messages/:domain", async (c) => {
     return c.json({ queued: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] POST /api/messages/:domain failed:', message);
+    logger.error("POST /api/messages/:domain failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to send message", details: message }, 500);
   }
 });
@@ -1210,7 +1216,7 @@ app.get("/api/widgets/:name", async (c) => {
     return c.json({ widget: name, data });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] GET /api/widgets/:name failed:', message);
+    logger.error("GET /api/widgets/:name failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to fetch widget data", details: message }, 500);
   }
 });
@@ -1225,7 +1231,7 @@ app.post("/api/priorities/done", async (c) => {
     return result.ok ? c.json({ ok: true }) : c.json({ error: result.error }, 400);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] POST /api/priorities/done failed:', message);
+    logger.error("POST /api/priorities/done failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to mark priority done", details: message }, 500);
   }
 });
@@ -1252,7 +1258,7 @@ app.post("/api/containers/:runtime/:id/:action", async (c) => {
     return c.json({ ok });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] POST /api/containers/:runtime/:id/:action failed:', message);
+    logger.error("POST /api/containers/:runtime/:id/:action failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to control container", details: message }, 500);
   }
 });
@@ -1297,16 +1303,16 @@ app.post("/api/schedules/:id/trigger", async (c) => {
       }
 
       manager.sendMessage(msg).catch((err) => {
-        console.error("[schedules] trigger sendMessage failed:", err);
+        logger.error("Scheduled trigger sendMessage failed", err instanceof Error ? err : { error: String(err) });
       });
       return c.json({ triggered: true, job: jobId });
     } catch (err) {
-      console.error("[schedules] Failed to trigger job:", err);
+      logger.error("Failed to trigger scheduled job", err instanceof Error ? err : { error: String(err) });
       return c.json({ error: String(err) }, 500);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] POST /api/schedules/:id/trigger failed:', message);
+    logger.error("POST /api/schedules/:id/trigger failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to trigger schedule", details: message }, 500);
   }
 });
@@ -1394,7 +1400,7 @@ app.post("/webhooks/:secret", async (c) => {
     return c.json({ received: true, job: jobId });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] POST /webhooks/:secret failed:', message);
+    logger.error("POST /webhooks/:secret failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to process webhook", details: message }, 500);
   }
 });
@@ -1448,7 +1454,7 @@ app.post("/webhooks/jobs/:id", async (c) => {
     return c.json({ triggered: true, job: jobId, payload });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[api] POST /webhooks/jobs/:id failed:', message);
+    logger.error("POST /webhooks/jobs/:id failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to trigger webhook job", details: message }, 500);
   }
 });
@@ -1464,7 +1470,7 @@ app.get("/sse", (c) => {
   const stream = new ReadableStream({
     start(controller) {
       wsClients.set(clientId, { id: clientId, controller, domain });
-      console.log(`[web] SSE client connected: ${clientId} (domain: ${domain ?? "all"})`);
+      logger.info("SSE client connected", { clientId, domain: domain ?? "all" });
 
       // Send initial connection event
       controller.enqueue(
@@ -1493,7 +1499,7 @@ app.get("/sse", (c) => {
         }
       }
       wsClients.delete(clientId);
-      console.log(`[web] SSE client disconnected: ${clientId}`);
+      logger.info("SSE client disconnected", { clientId });
     },
   });
 
@@ -1704,7 +1710,7 @@ const websocketHandler = {
           ws.send(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
         }
       } catch (err) {
-        console.error('[term] stdout read error:', err);
+        logger.error("Terminal stdout read error", err instanceof Error ? err : { error: String(err) });
       }
     })();
 
@@ -1719,7 +1725,7 @@ const websocketHandler = {
           ws.send(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
         }
       } catch (err) {
-        console.error('[term] stderr read error:', err);
+        logger.error("Terminal stderr read error", err instanceof Error ? err : { error: String(err) });
       }
     })();
 
@@ -1731,7 +1737,7 @@ const websocketHandler = {
       } catch { /* ignore */ }
     });
 
-    console.log(`[term] Shell spawned for WebSocket #${socketId}`);
+    logger.info("Shell spawned for WebSocket", { socketId });
   },
 
   message(ws: TerminalWebSocket, message: string | Buffer) {
@@ -1758,7 +1764,7 @@ const websocketHandler = {
         ws.shell.stdin.write(data);
       }
     } catch (err) {
-      console.error('[term] stdin write error:', err);
+      logger.error("Terminal stdin write error", err instanceof Error ? err : { error: String(err) });
     }
   },
 
@@ -1768,7 +1774,7 @@ const websocketHandler = {
         ws.shell.kill();
       } catch { /* ignore */ }
     }
-    console.log('[term] WebSocket closed');
+    logger.info("Terminal WebSocket closed");
   },
 };
 
@@ -1797,5 +1803,5 @@ if (import.meta.main) {
     websocket: websocketHandler,
   });
 
-  console.log(`🌐  Majordomo Web listening on http://localhost:${PORT}`);
+  logger.info(`Majordomo Web listening on http://localhost:${PORT}`, { port: PORT });
 }
