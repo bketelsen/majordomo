@@ -64,6 +64,9 @@ interface WsClient {
 
 const wsClients = new Map<string, WsClient>();
 
+// Track heartbeat timers for SSE controllers (type-safe cleanup)
+const heartbeatTimers = new WeakMap<ReadableStreamDefaultController, NodeJS.Timeout>();
+
 function broadcast(event: string, data: unknown, domain?: string): void {
   const payload = `data: ${JSON.stringify({ event, data, ts: Date.now() })}\n\n`;
   for (const client of wsClients.values()) {
@@ -972,12 +975,18 @@ app.get("/sse", (c) => {
         }
       }, 15000);
 
-      // Store heartbeat ref for cleanup
-      (controller as any)._heartbeat = heartbeat;
+      // Store heartbeat ref for cleanup (type-safe via WeakMap)
+      heartbeatTimers.set(controller, heartbeat);
     },
     cancel() {
-      const ctrl = wsClients.get(clientId)?.controller as any;
-      if (ctrl?._heartbeat) clearInterval(ctrl._heartbeat);
+      const client = wsClients.get(clientId);
+      if (client) {
+        const heartbeat = heartbeatTimers.get(client.controller);
+        if (heartbeat) {
+          clearInterval(heartbeat);
+          heartbeatTimers.delete(client.controller);
+        }
+      }
       wsClients.delete(clientId);
       console.log(`[web] SSE client disconnected: ${clientId}`);
     },
