@@ -857,14 +857,17 @@ app.post("/webhooks/:secret", async (c) => {
     let jobId: string | undefined;
     try {
       const db = new Database(dbPath, { readonly: true });
-      // Find job whose action_data contains this secret
-      const jobs = db.prepare("SELECT * FROM jobs WHERE enabled = 1").all() as Array<Record<string, unknown>>;
-      db.close();
-      for (const job of jobs) {
-        try {
-          const d = JSON.parse(job.action_data as string);
-          if (d.webhook_secret === secret) { jobId = job.id as string; break; }
-        } catch { /* skip */ }
+      try {
+        // Find job whose action_data contains this secret
+        const jobs = db.prepare("SELECT * FROM jobs WHERE enabled = 1").all() as Array<Record<string, unknown>>;
+        for (const job of jobs) {
+          try {
+            const d = JSON.parse(job.action_data as string);
+            if (d.webhook_secret === secret) { jobId = job.id as string; break; }
+          } catch { /* skip */ }
+        }
+      } finally {
+        db.close();
       }
     } catch { /* no DB yet */ }
 
@@ -898,8 +901,11 @@ app.post("/webhooks/jobs/:id", async (c) => {
     let job: Record<string, unknown> | undefined;
     try {
       const db = new Database(dbPath, { readonly: true });
-      job = db.prepare("SELECT * FROM jobs WHERE id = ? AND enabled = 1").get(jobId) as Record<string, unknown> | undefined;
-      db.close();
+      try {
+        job = db.prepare("SELECT * FROM jobs WHERE id = ? AND enabled = 1").get(jobId) as Record<string, unknown> | undefined;
+      } finally {
+        db.close();
+      }
     } catch (err) {
       return c.json({ error: "Scheduler database not available", details: String(err) }, 503);
     }
@@ -922,8 +928,11 @@ app.post("/webhooks/jobs/:id", async (c) => {
     // Record the trigger in runs table
     try {
       const db = new Database(dbPath);
-      db.prepare("INSERT INTO runs (job_id, ran_at, success) VALUES (?, datetime('now'), 1)").run(jobId);
-      db.close();
+      try {
+        db.prepare("INSERT INTO runs (job_id, ran_at, success) VALUES (?, datetime('now'), 1)").run(jobId);
+      } finally {
+        db.close();
+      }
     } catch {
       // Non-fatal if we can't record the run
     }
