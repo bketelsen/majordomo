@@ -1210,6 +1210,136 @@ app.post("/api/messages/:domain", async (c) => {
   }
 });
 
+// ── Subagent Session API ──────────────────────────────────────────────────────
+
+// Get list of subagent runs
+app.get("/api/subagents", async (c) => {
+  const dbPath = path.join(DATA_ROOT, "subagents.db");
+  try {
+    const db = new Database(dbPath, { readonly: true });
+    const rows = db.prepare(
+      "SELECT id, agent, status, started_at, finished_at FROM runs ORDER BY started_at DESC LIMIT 50"
+    ).all() as Array<Record<string, unknown>>;
+    db.close();
+    
+    const runs = rows.map(r => ({
+      id: r.id,
+      agent: r.agent,
+      status: r.status,
+      startedAt: r.started_at,
+      finishedAt: r.finished_at ?? null,
+    }));
+    
+    return c.json({ runs });
+  } catch (err) {
+    logger.error("Failed to list subagent runs", err instanceof Error ? err : { error: String(err) });
+    return c.json({ error: "Failed to list runs" }, 500);
+  }
+});
+
+// Get full session JSONL for a completed run
+app.get("/api/subagents/:id/session", async (c) => {
+  const { id } = c.req.param();
+  const dbPath = path.join(DATA_ROOT, "subagents.db");
+  
+  try {
+    const db = new Database(dbPath, { readonly: true });
+    const row = db.prepare("SELECT session_jsonl, status FROM runs WHERE id = ?")
+      .get(id) as { session_jsonl: string | null; status: string } | null;
+    db.close();
+    
+    if (!row) {
+      return c.json({ error: "Run not found" }, 404);
+    }
+    
+    if (!row.session_jsonl) {
+      return c.json({ error: "Session data not available for this run" }, 404);
+    }
+    
+    return c.json({ 
+      runId: id, 
+      status: row.status,
+      jsonl: row.session_jsonl 
+    });
+  } catch (err) {
+    logger.error("Failed to fetch session", { runId: id, error: err });
+    return c.json({ error: "Database error" }, 500);
+  }
+});
+
+// SSE stream for live or historical session
+app.get("/api/subagents/:id/stream", async (c) => {
+  const { id } = c.req.param();
+  const streamsDir = path.join(DATA_ROOT, "subagent-streams");
+  const streamPath = path.join(streamsDir, `${id}.jsonl`);
+  
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      
+      // Check if run is still active (temp file exists)
+      let isLive = false;
+      try {
+        await fs.access(streamPath);
+        isLive = true;
+      } catch {
+        // File doesn't exist — check DB for completed run
+      }
+      
+      if (isLive) {
+        // Tail live file
+        let position = 0;
+        const interval = setInterval(async () => {
+          try {
+            const stats = await fs.stat(streamPath).catch(() => null);
+            if (!stats) {
+              // File was deleted, run completed
+              clearInterval(interval);
+              controller.close();
+              return;
+            }
+            
+            const content = await fs.readFile(streamPath, "utf-8");
+            const newData = content.slice(position);
+            if (newData) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ events: newData })}\n\n`));
+              position = content.length;
+            }
+          } catch (err) {
+            clearInterval(interval);
+            controller.close();
+          }
+        }, 500);  // Poll every 500ms
+        
+      } else {
+        // Serve from DB
+        const dbPath = path.join(DATA_ROOT, "subagents.db");
+        try {
+          const db = new Database(dbPath, { readonly: true });
+          const row = db.prepare("SELECT session_jsonl FROM runs WHERE id = ?")
+            .get(id) as { session_jsonl: string | null } | null;
+          db.close();
+          
+          if (row?.session_jsonl) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ events: row.session_jsonl })}\n\n`));
+          }
+        } catch (err) {
+          logger.error("Failed to read session from DB", { runId: id, error: err });
+        }
+        controller.close();
+      }
+    },
+  });
+  
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
+});
+
 // ── Widgets API ───────────────────────────────────────────────────────────────
 
 app.get("/api/widgets/:name", async (c) => {

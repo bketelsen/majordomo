@@ -2,11 +2,13 @@
  * SubagentsWidget - Shows recent subagent runs
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useWidget } from '../../hooks/useWidget';
 import { Widget } from './Widget';
+import { SessionViewerDrawer } from '../subagent-viewer/SessionViewerDrawer';
 
 interface SubagentRun {
+  id: string;
   agent: string;
   status: 'running' | 'done' | 'failed';
   startedAt: number;
@@ -29,48 +31,73 @@ const escapeHtml = (text: string) => {
 
 export const SubagentsWidget: React.FC = () => {
   const { data, loading, refresh, updatedAt } = useWidget<SubagentsData>('subagents', 10000);
+  const [selectedRun, setSelectedRun] = useState<{ id: string; isLive: boolean } | null>(null);
 
   const runs = (data?.runs ?? []).slice(0, 8);
 
-  return (
-    <Widget
-      id="widget-subagents"
-      title="Subagent Runs"
-      icon="⚙"
-      refreshable
-      onRefresh={refresh}
-      updatedAt={updatedAt}
-    >
-      {loading ? (
-        <div className="empty">Loading…</div>
-      ) : runs.length === 0 ? (
-        <div className="empty">No runs yet</div>
-      ) : (
-        runs.map((r, idx) => {
-          const icon = r.status === 'done' ? '✅' : r.status === 'failed' ? '❌' : '⏳';
-          const age = Math.round((Date.now() - r.startedAt) / 1000);
-          const ageStr =
-            age < 60 ? `${age}s` : age < 3600 ? `${Math.round(age / 60)}m` : `${Math.round(age / 3600)}h`;
+  const handleRunClick = (run: SubagentRun) => {
+    const isLive = run.status === 'running';
+    setSelectedRun({ id: run.id, isLive });
+  };
 
-          return (
-            <div key={idx} className="run-item">
-              <div className="run-header">
-                {icon} <span className="run-agent">{escapeHtml(r.agent)}</span>
-                <span className={`run-badge run-${r.status}`}>{r.status}</span>
-                <span className="run-time">{ageStr} ago</span>
-              </div>
-              {r.outputPreview && (
-                <div className="run-preview">{escapeHtml(r.outputPreview.slice(0, 80))}</div>
-              )}
-              {r.error && (
-                <div className="run-preview" style={{ color: 'var(--error)' }}>
-                  {escapeHtml(r.error.slice(0, 80))}
+  const handleCloseDrawer = () => {
+    setSelectedRun(null);
+  };
+
+  return (
+    <>
+      <Widget
+        id="widget-subagents"
+        title="Subagent Runs"
+        icon="⚙"
+        refreshable
+        onRefresh={refresh}
+        updatedAt={updatedAt}
+      >
+        {loading ? (
+          <div className="empty">Loading…</div>
+        ) : runs.length === 0 ? (
+          <div className="empty">No runs yet</div>
+        ) : (
+          runs.map((r, idx) => {
+            const icon = r.status === 'done' ? '✅' : r.status === 'failed' ? '❌' : '⏳';
+            const age = Math.round((Date.now() - r.startedAt) / 1000);
+            const ageStr =
+              age < 60 ? `${age}s` : age < 3600 ? `${Math.round(age / 60)}m` : `${Math.round(age / 3600)}h`;
+
+            return (
+              <div 
+                key={idx} 
+                className="run-item"
+                onClick={() => handleRunClick(r)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="run-header">
+                  {icon} <span className="run-agent">{escapeHtml(r.agent)}</span>
+                  <span className={`run-badge run-${r.status}`}>{r.status}</span>
+                  <span className="run-time">{ageStr} ago</span>
                 </div>
-              )}
-            </div>
-          );
-        })
+                {r.outputPreview && (
+                  <div className="run-preview">{escapeHtml(r.outputPreview.slice(0, 80))}</div>
+                )}
+                {r.error && (
+                  <div className="run-preview" style={{ color: 'var(--error)' }}>
+                    {escapeHtml(r.error.slice(0, 80))}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </Widget>
+
+      {selectedRun && (
+        <SessionViewerDrawer
+          runId={selectedRun.id}
+          isLive={selectedRun.isLive}
+          onClose={handleCloseDrawer}
+        />
       )}
-    </Widget>
+    </>
   );
 };

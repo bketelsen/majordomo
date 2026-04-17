@@ -230,6 +230,16 @@ const RUNS_MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    name: "add_session_jsonl_column",
+    up: (db) => {
+      const cols = db.prepare("PRAGMA table_info(runs)").all() as {name: string}[];
+      if (!cols.some(c => c.name === 'session_jsonl')) {
+        db.exec(`ALTER TABLE runs ADD COLUMN session_jsonl TEXT`);
+      }
+    },
+  },
 ];
 
 function openRunsDb(dataRoot: string): Database {
@@ -294,9 +304,10 @@ function updateRecord<T extends Record<string, unknown>>(
   }
 }
 
-function updateRun(db: Database, id: string, fields: Partial<Pick<RunRecord, 'status' | 'output' | 'error' | 'stderr' | 'retries' | 'finishedAt'>>): void {
+function updateRun(db: Database, id: string, fields: Partial<Pick<RunRecord, 'status' | 'output' | 'error' | 'stderr' | 'retries' | 'finishedAt'> & { session_jsonl?: string }>): void {
   updateRecord(db, 'runs', id, fields, {
-    finishedAt: 'finished_at'
+    finishedAt: 'finished_at',
+    session_jsonl: 'session_jsonl'
   });
 }
 
@@ -424,8 +435,10 @@ async function spawnAgent(
   agent: AgentDefinition,
   input: Record<string, unknown>,
   cwd: string,
+  dataRoot: string,
+  runId: string,
   signal?: AbortSignal
-): Promise<{ output: string; exitCode: number; stderr: string }> {
+): Promise<{ output: string; exitCode: number; stderr: string; sessionJsonl: string }> {
   // Write system prompt to temp file
   const tmpFile = path.join(cwd, `.tmp-agent-${Date.now()}.md`);
   await fs.writeFile(tmpFile, agent.systemPrompt, "utf-8");
@@ -451,7 +464,12 @@ async function spawnAgent(
   piArgs.push("--append-system-prompt", tmpFile);
   piArgs.push(prompt);
 
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
+    // Create stream directory and temp file for real-time JSONL capture
+    const streamsDir = path.join(dataRoot, "subagent-streams");
+    await fs.mkdir(streamsDir, { recursive: true });
+    const streamPath = path.join(streamsDir, `${runId}.jsonl`);
+    
     const { cmd, args } = getPiCommand();
     const proc = spawn(cmd, [...args, ...piArgs], {
       cwd,
@@ -461,11 +479,38 @@ async function spawnAgent(
     let stdout = "";
     let stderr = "";
     let killed = false;
+    let streamWriter: Awaited<ReturnType<typeof fs.open>> | null = null;
 
-    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
+    // Open file for writing
+    try {
+      streamWriter = await fs.open(streamPath, "w");
+    } catch (err) {
+      logger.warn("Failed to open stream file, continuing without streaming", { streamPath, error: err });
+    }
+
+    proc.stdout.on("data", (d: Buffer) => {
+      const chunk = d.toString();
+      stdout += chunk;
+      if (streamWriter) {
+        streamWriter.write(chunk).catch((err) => {
+          logger.debug("Failed to write to stream file", { error: err });
+        });
+      }
+    });
     proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
 
     proc.on("close", async (code) => {
+      // Close and clean up stream file
+      if (streamWriter) {
+        try {
+          await streamWriter.close();
+          // Clean up temp file after successful completion
+          await fs.unlink(streamPath).catch(() => {});
+        } catch (err) {
+          logger.debug("Failed to close/cleanup stream file", { error: err });
+        }
+      }
+      
       // Clean up temp file
       fs.unlink(tmpFile).catch(() => { });
 
@@ -486,10 +531,16 @@ async function spawnAgent(
         }
       }
 
-      resolve({ output: finalText || stdout, exitCode: code ?? 0, stderr });
+      resolve({ output: finalText || stdout, exitCode: code ?? 0, stderr, sessionJsonl: stdout });
     });
 
-    proc.on("error", (err) => {
+    proc.on("error", async (err) => {
+      if (streamWriter) {
+        try {
+          await streamWriter.close();
+          await fs.unlink(streamPath).catch(() => {});
+        } catch {}
+      }
       fs.unlink(tmpFile).catch(() => { });
       reject(err);
     });
@@ -683,12 +734,18 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
 
           while (attempt <= maxRetries) {
             try {
-              const result = await spawnAgent(agentDef, params.input as Record<string, unknown>, domainWorkingDir, signal);
+              const result = await spawnAgent(agentDef, params.input as Record<string, unknown>, domainWorkingDir, dataRoot, run.id, signal);
               lastStderr = result.stderr || "";
 
               if (result.exitCode === 0) {
                 const finishedAt = Date.now();
-                updateRun(db, run.id, { status: "done", output: result.output, stderr: result.stderr || undefined, finishedAt });
+                updateRun(db, run.id, { 
+                  status: "done", 
+                  output: result.output, 
+                  stderr: result.stderr || undefined, 
+                  session_jsonl: result.sessionJsonl,
+                  finishedAt 
+                });
                 if (notify) {
                   const elapsed = ((finishedAt - run.startedAt) / 1000).toFixed(0);
                   pi.sendUserMessage(
@@ -1006,7 +1063,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
                 );
 
                 try {
-                  const result = await spawnAgent(agentDef, resolvedInput, domainWorkingDir, signal);
+                  const result = await spawnAgent(agentDef, resolvedInput, domainWorkingDir, dataRoot, stepRecord.id, signal);
 
                   if (result.exitCode === 0) {
                     outputs.push(result.output);
@@ -1166,7 +1223,7 @@ export function subagentManagerExtensionFactory(opts: SubagentManagerOptions) {
               );
 
               try {
-                const result = await spawnAgent(agentDef, resolvedInput, domainWorkingDir, signal);
+                const result = await spawnAgent(agentDef, resolvedInput, domainWorkingDir, dataRoot, stepRecord.id, signal);
 
                 if (result.exitCode !== 0) {
                   updateWorkflowStep(db, stepRecord.id, { 
