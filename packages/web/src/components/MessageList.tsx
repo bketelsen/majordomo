@@ -10,6 +10,8 @@ import { ToolCall } from '../hooks/useSSE';
 import { Message } from './Message';
 import { ToolCallCard } from './ToolCallCard';
 import { ThinkingBlock } from './ThinkingBlock';
+import { StreamingMessageBlocks } from './StreamingMessageBlocks';
+import type { StreamingMessage } from '../hooks/useSSE';
 
 interface MessageListProps {
   messages: TimelineItem[];
@@ -17,6 +19,7 @@ interface MessageListProps {
   thinkingText?: string;
   toolCalls?: ToolCall[];
   isStreaming?: boolean;
+  streamingMessage?: StreamingMessage | null;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
@@ -25,6 +28,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   thinkingText = '',
   toolCalls = [],
   isStreaming = false,
+  streamingMessage = null,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -85,11 +89,13 @@ export const MessageList: React.FC<MessageListProps> = ({
         <ToolCallCard key={toolCall.id} toolCall={toolCall} />
       ))}
 
-      {/* Thinking block during streaming */}
-      {thinkingText && <ThinkingBlock content={thinkingText} isStreaming={isStreaming} />}
+      {/* Thinking block during streaming — only shown in fallback path */}
+      {!streamingMessage && thinkingText && <ThinkingBlock content={thinkingText} isStreaming={isStreaming} />}
 
-      {/* Streaming message */}
-      {streamingText && (
+      {/* Phase 2: Render full content blocks when available */}
+      {streamingMessage ? (
+        <StreamingMessageBlocks message={streamingMessage} isStreaming={isStreaming} />
+      ) : streamingText && (
         <div
           className="msg agent streaming"
           style={{

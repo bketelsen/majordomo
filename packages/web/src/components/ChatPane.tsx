@@ -114,6 +114,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain }) => {
     toolCalls,
     suggestedSwitch,
     newMessage,
+    streamingMessage,
     dismissSuggestion,
     clearNewMessage,
   } = useSSE(activeDomain);
@@ -223,6 +224,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain }) => {
           thinkingText={thinkingText}
           toolCalls={toolCalls}
           isStreaming={isStreaming}
+          streamingMessage={streamingMessage}
         />
       )}
 

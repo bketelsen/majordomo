@@ -4,6 +4,20 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { TimelineItem } from './useMessages';
+// Local type matching pi-ai's AssistantMessage shape (avoid cross-package dep)
+export interface StreamingContentBlock {
+  type: 'text' | 'thinking' | 'tool_use' | 'tool_result';
+  text?: string;          // type: text
+  thinking?: string;      // type: thinking
+  id?: string;            // type: tool_use
+  name?: string;          // type: tool_use
+  input?: Record<string, unknown>; // type: tool_use
+  content?: string;       // type: tool_result
+}
+export interface StreamingMessage {
+  role: 'assistant';
+  content: StreamingContentBlock[];
+}
 
 export interface ToolCall {
   id: string;
@@ -27,6 +41,7 @@ export interface SSEState {
   toolCalls: ToolCall[];
   suggestedSwitch: DomainSwitchSuggestion | null;
   newMessage: TimelineItem | null;
+  streamingMessage: StreamingMessage | null;  // Phase 2: Full message state
 }
 
 export function useSSE(activeDomain: string) {
@@ -40,6 +55,7 @@ export function useSSE(activeDomain: string) {
     toolCalls: [],
     suggestedSwitch: null,
     newMessage: null,
+    streamingMessage: null,
   });
 
   const clearStreamingState = useCallback(() => {
@@ -49,6 +65,7 @@ export function useSSE(activeDomain: string) {
       streamingText: '',
       thinkingText: '',
       toolCalls: [],
+      streamingMessage: null,
     }));
   }, []);
 
@@ -116,11 +133,16 @@ export function useSSE(activeDomain: string) {
             break;
 
           case 'agent:message_update':
-            // Phase 1: Log full message state (not wired to UI yet)
-            console.log('[Phase 1] agent:message_update received:', {
+            // Phase 2: Wire full message state to UI
+            console.log('[Phase 2] agent:message_update received:', {
               domain: data.domain,
               message: data.message,
             });
+            setState(prev => ({
+              ...prev,
+              isStreaming: true,
+              streamingMessage: data.message,
+            }));
             break;
 
           case 'agent:tool_start':
