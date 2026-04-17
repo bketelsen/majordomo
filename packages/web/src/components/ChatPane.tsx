@@ -162,10 +162,10 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
   const messagesUpdated = (lastMessage?.timestamp ?? 0) > streamStartTimestampRef.current;
   if (messagesUpdated) expectingReloadRef.current = false;
 
-  // effectiveStreamingMessage goes null when:
-  // a) messages contains a newer item than the snapshot (reload landed), OR
-  // b) we are no longer expecting a reload AND agent is done
-  const effectiveStreamingMessage = (messagesUpdated || (!expectingReloadRef.current && agentDoneRef.current && !streamingMessage))
+  // Once agent:done fires, hide all streaming content immediately.
+  // The 300ms reload delay ensures the committed message lands before
+  // clearStreamingState fires at 800ms — acceptable gap, no double.
+  const effectiveStreamingMessage = agentDoneRef.current
     ? null
     : (streamingMessage ?? lastStreamingMessageRef.current);
 
