@@ -413,17 +413,17 @@ export const MessageList: React.FC<MessageListProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // New committed message (count changed): smooth scroll to bottom.
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
-
-  // Streaming updates: instant scroll — invisible if already at bottom,
-  // no animation jank if not. Never fights the user.
-  useEffect(() => {
-    if (!isStreaming) return;
-    messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
-  }, [streamingMessage, streamingText, isStreaming]);
+  // After every render, if the user is near the bottom, pin them there.
+  // useLayoutEffect runs synchronously after DOM mutations, before paint —
+  // no animation, no timing races, no dependency arrays to get wrong.
+  React.useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom < 120) {
+      container.scrollTop = container.scrollHeight;
+    }
+  });
 
   return (
     <div
@@ -508,7 +508,7 @@ export const MessageList: React.FC<MessageListProps> = ({
         )
       )}
 
-      <div ref={messagesEndRef} style={{ overflowAnchor: 'auto', height: '1px' }} />
+      <div ref={messagesEndRef} style={{ height: '1px' }} />
     </div>
   );
 };
