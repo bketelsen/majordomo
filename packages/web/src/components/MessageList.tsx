@@ -3,7 +3,7 @@
  * Replaces the previous fragmented implementation with a single, maintainable component
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { TimelineItem } from '../hooks/useMessages';
@@ -410,24 +410,28 @@ export const MessageList: React.FC<MessageListProps> = ({
   isStreaming = false,
   streamingMessage = null,
 }) => {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const isPinnedRef = useRef(true); // start pinned to bottom
 
-  // After every render, if the user is near the bottom, pin them there.
-  // useLayoutEffect runs synchronously after DOM mutations, before paint —
-  // no animation, no timing races, no dependency arrays to get wrong.
-  React.useLayoutEffect(() => {
+  // Track whether user has scrolled up manually
+  const handleScroll = React.useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom < 120) {
-      container.scrollTop = container.scrollHeight;
-    }
+    isPinnedRef.current = distanceFromBottom < 120;
+  }, []);
+
+  // After every render, if pinned, scroll to bottom instantly
+  React.useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || !isPinnedRef.current) return;
+    container.scrollTop = container.scrollHeight;
   });
 
   return (
     <div
       ref={containerRef}
+      onScroll={handleScroll}
       style={{
         flex: 1,
         overflowY: 'auto',
@@ -508,7 +512,7 @@ export const MessageList: React.FC<MessageListProps> = ({
         )
       )}
 
-      <div ref={messagesEndRef} style={{ height: '1px' }} />
+      <div style={{ height: '1px' }} />
     </div>
   );
 };
