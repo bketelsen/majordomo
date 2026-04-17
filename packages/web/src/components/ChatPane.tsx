@@ -2,7 +2,7 @@
  * ChatPane - Main chat container that coordinates messages, SSE, and input
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useMessages, TimelineItem } from '../hooks/useMessages';
 import { useSSE, DomainSwitchSuggestion } from '../hooks/useSSE';
 import { MessageList } from './MessageList';
