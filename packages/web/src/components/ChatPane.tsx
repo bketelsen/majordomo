@@ -125,11 +125,14 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
   // Only track optimistic user messages — everything else comes from useMessages directly.
   const [optimisticMessages, setOptimisticMessages] = useState<TimelineItem[]>([]);
 
-  // Snapshot message count when streaming starts (inline, synchronous).
+  // Snapshot the latest committed message timestamp when streaming starts.
+  // After reload, messages will contain items with newer timestamps.
+  // This is robust against the limit=80 cap (length stays constant).
   const wasStreamingRef = useRef(false);
-  const streamStartLengthRef = useRef(0);
+  const streamStartTimestampRef = useRef(0);
   if (isStreaming && !wasStreamingRef.current) {
-    streamStartLengthRef.current = messages.length;
+    const latest = messages[messages.length - 1];
+    streamStartTimestampRef.current = latest?.timestamp ?? 0;
   }
   wasStreamingRef.current = isStreaming;
 
@@ -139,15 +142,18 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
   const lastStreamingMessageRef = useRef<typeof streamingMessage>(null);
   if (streamingMessage) lastStreamingMessageRef.current = streamingMessage;
 
-  // Use the frozen snapshot when streamingMessage has cleared but reload hasn't landed yet.
-  // Goes null atomically in the same render that messages.length grows.
-  const effectiveStreamingMessage = messages.length <= streamStartLengthRef.current
-    ? (streamingMessage ?? lastStreamingMessageRef.current)
-    : null;
+  // effectiveStreamingMessage goes null when messages contains a newer item than
+  // the snapshot — meaning the reload landed with the committed response.
+  const lastMessage = messages[messages.length - 1];
+  const messagesUpdated = (lastMessage?.timestamp ?? 0) > streamStartTimestampRef.current;
+  const effectiveStreamingMessage = messagesUpdated
+    ? null
+    : (streamingMessage ?? lastStreamingMessageRef.current);
 
-  // While streaming content is visible, only show pre-stream messages (no double).
+  // While streaming content is visible, hide the trailing new messages (no double).
+  // Use timestamp filter instead of slice so limit=80 cap doesn't fool us.
   const baseMessages = effectiveStreamingMessage
-    ? messages.slice(0, streamStartLengthRef.current)
+    ? messages.filter(m => m.timestamp <= streamStartTimestampRef.current)
     : messages;
   const allMessages = [...baseMessages, ...optimisticMessages];
 
