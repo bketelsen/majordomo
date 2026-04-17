@@ -27,7 +27,7 @@ import { EventEmitter } from "node:events";
 import { Database } from "bun:sqlite";
 import { readDomainsManifest, type CogDomain } from "../../shared/lib/domains.ts";
 import { formatError } from "../../shared/lib/error-helpers.ts";
-import "../../shared/types.ts";
+import { getGlobalManager, getGlobalTelegram, tryGetGlobalManager } from "../../agent/lib/shared-state.ts";
 import { createLogger } from "../../agent/lib/logger.ts";
 
 import { indexHTML, isCompiledBinary, manifest, serviceWorker, getAppleTouchIcon, getIcon512, reactIndexHTML, appJs, appCss } from "./assets.ts";
@@ -1134,7 +1134,7 @@ app.post("/api/health/sessions/cleanup", (c) => {
 app.get("/api/domains", async (c) => {
   try {
     const domains = await readDomains();
-    const manager = globalThis.__majordomoManager;
+    const manager = tryGetGlobalManager();
     return c.json({ domains, activeDomain: manager?.getDomain() ?? "general" });
   } catch (err) {
     const message = formatError(err);
@@ -1146,7 +1146,7 @@ app.get("/api/domains", async (c) => {
 app.post("/api/domains/:id/activate", async (c) => {
   try {
     const domainId = c.req.param("id");
-    const manager = globalThis.__majordomoManager;
+    const manager = tryGetGlobalManager();
 
     if (!manager) {
       return c.json({ success: false, error: "Agent service not available" }, 503);
@@ -1215,7 +1215,7 @@ app.post("/api/messages/:domain", async (c) => {
       return c.json({ error: "text is required" }, 400);
     }
 
-    const manager = globalThis.__majordomoManager;
+    const manager = tryGetGlobalManager();
 
     if (!manager) {
       return c.json({ error: "Agent service not available" }, 503);
@@ -1235,16 +1235,14 @@ app.post("/api/messages/:domain", async (c) => {
     }).then((response) => {
       webEvents.emit("agent:done", { domain, text: response });
       // Relay agent response back to Telegram (best-effort)
-      const tg = (globalThis as Record<string, unknown>).__majordomoTelegram as
-        { sendToDomain: (d: string, t: string) => Promise<void> } | null;
+      const tg = getGlobalTelegram();
       tg?.sendToDomain(domain, response).catch(() => {});
     }).catch((err) => {
       webEvents.emit("agent:error", { domain, error: String(err) });
     });
 
     // Relay user message to Telegram (best-effort, tagged "(via web)")
-    const tg = (globalThis as Record<string, unknown>).__majordomoTelegram as
-      { sendToDomain: (d: string, t: string) => Promise<void> } | null;
+    const tg = getGlobalTelegram();
     tg?.sendToDomain(domain, `(via web) ${text}`).catch(() => {});
 
     return c.json({ queued: true });
@@ -1445,7 +1443,7 @@ app.post("/api/containers/:runtime/:id/:action", async (c) => {
 app.post("/api/schedules/:id/trigger", async (c) => {
   try {
     const jobId = c.req.param("id");
-    const manager = globalThis.__majordomoManager;
+    const manager = tryGetGlobalManager();
 
     if (!manager) return c.json({ error: "Agent not available" }, 503);
 
@@ -1567,7 +1565,7 @@ app.post("/webhooks/:secret", async (c) => {
     if (!jobId) return c.json({ error: "Unknown webhook" }, 404);
 
     const payload = await c.req.json().catch(() => ({}));
-    const manager = globalThis.__majordomoManager;
+    const manager = tryGetGlobalManager();
 
     if (manager) {
       await manager.switchDomain("general");

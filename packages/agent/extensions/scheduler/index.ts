@@ -26,7 +26,7 @@ import { Type } from "@sinclair/typebox";
 import { createLogger } from "../../lib/logger.ts";
 import { formatError } from "../../../shared/lib/error-helpers.ts";
 import { runMigrations, type Migration } from "../../lib/db-migrations.ts";
-import "../../../shared/types.ts";
+import { getGlobalWebEvents, getGlobalManager } from "../../lib/shared-state.ts";
 
 const logger = createLogger({ context: { component: "scheduler" } });
 
@@ -231,8 +231,8 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
     startAllJobs();
 
     // Listen for webhook triggers from web server
-    const webEvents = (globalThis as Record<string, unknown>).__majordomoWebEvents as EventEmitter | undefined;
-    if (webEvents) {
+    try {
+      const webEvents = getGlobalWebEvents();
       webEvents.on('webhook:trigger', async ({ jobId, payload }: { jobId: string; payload: unknown }) => {
         logger.info("Webhook trigger received", { jobId, payload });
         try {
@@ -250,6 +250,8 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
           db.prepare("INSERT INTO runs (job_id, ran_at, success, error) VALUES (?, datetime('now'), 0, ?)").run(jobId, String(err));
         }
       });
+    } catch (err) {
+      logger.debug("Web events not available yet (will be initialized by service.ts)", { error: err });
     }
 
     pi.on("session_shutdown", async () => {
@@ -494,24 +496,16 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
           return;
         }
 
-        const manager = globalThis.__majordomoManager;
-        if (manager) {
-          try {
-            await manager.switchDomain(domainId);
-            ctx.ui.notify(`Switched to domain: ${domainId}`, "info");
-            pi.sendUserMessage(
-              `Domain context switched to ${domainId}. Loading relevant context...`,
-              { deliverAs: "followUp" }
-            );
-          } catch (err) {
-            ctx.ui.notify(`Failed to switch domain: ${err}`, "error");
-          }
-        } else {
-          logger.info("Intent logged: switch to domain (manager not wired yet)", { domainId });
-          ctx.ui.notify(
-            `Domain switch intent logged: ${domainId} (DomainContextManager not wired yet)`,
-            "info"
+        const manager = getGlobalManager();
+        try {
+          await manager.switchDomain(domainId);
+          ctx.ui.notify(`Switched to domain: ${domainId}`, "info");
+          pi.sendUserMessage(
+            `Domain context switched to ${domainId}. Loading relevant context...`,
+            { deliverAs: "followUp" }
           );
+        } catch (err) {
+          ctx.ui.notify(`Failed to switch domain: ${err}`, "error");
         }
       },
     });

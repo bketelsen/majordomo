@@ -18,7 +18,7 @@ import { Type } from "@sinclair/typebox";
 import { type CogDomain, type DomainsManifest, readDomainsManifest } from "../../../shared/lib/domains.ts";
 import { createLogger } from "../../lib/logger.ts";
 import { fileExists } from "../../../shared/lib/fs-helpers.ts";
-import "../../../shared/types.ts";
+import { getGlobalManager } from "../../lib/shared-state.ts";
 
 const logger = createLogger({ context: { component: "domain-manager" } });
 
@@ -583,16 +583,7 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
         }
 
         // Get the manager and switch domain
-        const manager = globalThis.__majordomoManager;
-        if (!manager) {
-          return {
-            content: [{
-              type: "text",
-              text: "❌ Domain manager not available. This tool requires the single-session architecture.",
-            }],
-            details: { success: false },
-          };
-        }
+        const manager = getGlobalManager();
 
         try {
           await manager.switchDomain(params.domain);

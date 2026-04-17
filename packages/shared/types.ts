@@ -1,11 +1,7 @@
 /**
  * Shared global type declarations for sionapi
+ * 
+ * Note: globalThis type declarations are now in packages/agent/lib/shared-state.ts
  */
-
-import type { DomainContextManager } from "../agent/lib/domain-context-manager.ts";
-
-declare global {
-  var __majordomoManager: DomainContextManager | undefined;
-}
 
 export {};

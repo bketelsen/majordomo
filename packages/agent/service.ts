@@ -22,6 +22,7 @@ import { app as webApp, PORT as WEB_PORT, webEvents, websocketHandler } from "..
 import { isCompiledBinary, defaultAgents, defaultWorkflows, personaContent } from "../web/src/assets.ts";
 import { createLogger } from "./lib/logger.ts";
 import { fileExists } from "../shared/lib/fs-helpers.ts";
+import { setGlobalManager, setGlobalWebEvents, setGlobalTelegram } from "./lib/shared-state.ts";
 import "../shared/types.ts";
 
 const logger = createLogger({ context: { component: "service" } });
@@ -145,10 +146,10 @@ const manager = new DomainContextManager({
 await manager.initialize();
 
 // Expose manager globally so the web server can route messages to it
-globalThis.__majordomoManager = manager;
+setGlobalManager(manager);
 
 // Expose webEvents globally so extensions can subscribe to web events
-(globalThis as Record<string, unknown>).__majordomoWebEvents = webEvents;
+setGlobalWebEvents(webEvents);
 
 // Forward agent session events to the web event bus
 sharedEventBus.on("domain:created", (data: unknown) => webEvents.emit("domain:created", data));
@@ -221,7 +222,7 @@ logger.info("✅  Majordomo Service ready", {
 });
 
 // Expose telegram instance for in-process web relay
-(globalThis as Record<string, unknown>).__majordomoTelegram = telegram;
+setGlobalTelegram(telegram);
 
 // Persona wizard — fires async, doesn't block service start
 runPersonaWizardIfNeeded(MAJORDOMO_STATE, async (text) => {
