@@ -124,19 +124,28 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
 
   // Only track optimistic user messages — everything else comes from useMessages directly.
   const [optimisticMessages, setOptimisticMessages] = useState<TimelineItem[]>([]);
+  // Hide streaming content once the DB reload lands to prevent double-message flash.
+  const [showStreaming, setShowStreaming] = useState(true);
 
   // Propagate SSE connection state up to App for the header badge
   useEffect(() => {
     onConnectionChange?.(isConnected);
   }, [isConnected, onConnectionChange]);
 
-  // When agent:done fires, reload from DB immediately. Streaming content stays
-  // visible (clearStreamingState fires at 800ms in useSSE) so there's no gap
-  // where neither streaming nor committed message is shown.
+  // Reset showStreaming when a new stream starts
+  useEffect(() => {
+    if (isStreaming) setShowStreaming(true);
+  }, [isStreaming]);
+
+  // When agent:done fires, reload from DB immediately. Suppress streaming
+  // content as soon as the reload completes so there's no double-message.
   useEffect(() => {
     if (newMessage) {
       clearNewMessage();
-      reload().finally(() => setOptimisticMessages([]));
+      reload().finally(() => {
+        setShowStreaming(false);
+        setOptimisticMessages([]);
+      });
     }
   }, [newMessage, clearNewMessage]);
 
@@ -236,11 +245,11 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
       ) : (
         <MessageList
           messages={allMessages}
-          streamingText={streamingText}
-          thinkingText={thinkingText}
-          toolCalls={toolCalls}
-          isStreaming={isStreaming}
-          streamingMessage={streamingMessage}
+          streamingText={showStreaming ? streamingText : ''}
+          thinkingText={showStreaming ? thinkingText : ''}
+          toolCalls={showStreaming ? toolCalls : []}
+          isStreaming={isStreaming && showStreaming}
+          streamingMessage={showStreaming ? streamingMessage : null}
         />
       )}
 
