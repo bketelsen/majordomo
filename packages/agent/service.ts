@@ -28,7 +28,8 @@ const logger = createLogger({ context: { component: "service" } });
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
-const HOME = process.env.HOME!;
+// Cross-platform home directory: Linux/macOS (HOME), Windows (USERPROFILE), containers (/root)
+const HOME = process.env.HOME ?? process.env.USERPROFILE ?? "/root";
 const PROJECT_ROOT = process.cwd();
 
 // State home (persistent data, memory, config)

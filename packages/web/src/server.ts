@@ -41,7 +41,8 @@ const logger = createLogger({ context: { component: "web-server" } });
 
 const PORT = parseInt(process.env.MAJORDOMO_WEB_PORT ?? "3000");
 const PROJECT_ROOT = process.env.MAJORDOMO_PROJECT_ROOT ?? process.cwd();
-const HOME = process.env.HOME ?? "/root";
+// Cross-platform home directory: Linux/macOS (HOME), Windows (USERPROFILE), containers (/root)
+const HOME = process.env.HOME ?? process.env.USERPROFILE ?? "/root";
 const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");
 const MEMORY_ROOT = path.join(MAJORDOMO_STATE, "memory");
 const DATA_ROOT = path.join(MAJORDOMO_STATE, "data");

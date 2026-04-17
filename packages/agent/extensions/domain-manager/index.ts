@@ -237,7 +237,8 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
           }
 
           // 3. Restrict to allowed parent directories for security
-          const homeDir = process.env.HOME ?? process.env.USERPROFILE;
+          // Cross-platform home directory: Linux/macOS (HOME), Windows (USERPROFILE), containers (/root)
+          const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "/root";
           const allowedPrefixes = [
             homeDir,
             '/tmp',

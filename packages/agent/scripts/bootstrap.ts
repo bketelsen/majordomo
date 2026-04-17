@@ -7,7 +7,8 @@ import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import { fileExists } from "../../shared/lib/fs-helpers.ts";
 
-const HOME = process.env.HOME ?? "/root";
+// Cross-platform home directory: Linux/macOS (HOME), Windows (USERPROFILE), containers (/root)
+const HOME = process.env.HOME ?? process.env.USERPROFILE ?? "/root";
 const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");
 const MEMORY_ROOT = path.join(MAJORDOMO_STATE, "memory");
 const DATA_ROOT = path.join(MAJORDOMO_STATE, "data");
