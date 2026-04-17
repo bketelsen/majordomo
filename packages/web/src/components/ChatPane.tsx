@@ -124,31 +124,40 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
 
   // Only track optimistic user messages — everything else comes from useMessages directly.
   const [optimisticMessages, setOptimisticMessages] = useState<TimelineItem[]>([]);
-  // Hide streaming content once the DB reload lands to prevent double-message flash.
-  const [showStreaming, setShowStreaming] = useState(true);
+  // Track message count at stream start; hide streaming content once committed messages arrive.
+  const streamStartLengthRef = useRef(0);
+  const [hideStreaming, setHideStreaming] = useState(false);
 
   // Propagate SSE connection state up to App for the header badge
   useEffect(() => {
     onConnectionChange?.(isConnected);
   }, [isConnected, onConnectionChange]);
 
-  // Reset showStreaming when a new stream starts
+  // When streaming starts, snapshot message count and reset hideStreaming
   useEffect(() => {
-    if (isStreaming) setShowStreaming(true);
+    if (isStreaming) {
+      streamStartLengthRef.current = messages.length;
+      setHideStreaming(false);
+    }
   }, [isStreaming]);
 
-  // When agent:done fires, reload from DB immediately. Suppress streaming
-  // content as soon as the reload completes so there's no double-message.
+  // When messages grows past the snapshot, the committed message is in the DOM —
+  // hide streaming content immediately so there's no double.
+  useEffect(() => {
+    if (messages.length > streamStartLengthRef.current) {
+      setHideStreaming(true);
+    }
+  }, [messages.length]);
+
+  // When agent:done fires, reload from DB and clear optimistic messages.
   useEffect(() => {
     if (newMessage) {
       clearNewMessage();
-      reload().finally(() => {
-        setShowStreaming(false);
-        setOptimisticMessages([]);
-      });
+      reload().finally(() => setOptimisticMessages([]));
     }
   }, [newMessage, clearNewMessage]);
 
+  const showStreaming = !hideStreaming;
   const allMessages = [...messages, ...optimisticMessages];
 
   const handleSendMessage = async (text: string) => {
