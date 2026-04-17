@@ -150,12 +150,10 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
     ? null
     : (streamingMessage ?? lastStreamingMessageRef.current);
 
-  // While streaming content is visible, hide the trailing new messages (no double).
-  // Use timestamp filter instead of slice so limit=80 cap doesn't fool us.
-  const baseMessages = effectiveStreamingMessage
-    ? messages.filter(m => m.timestamp <= streamStartTimestampRef.current)
-    : messages;
-  const allMessages = [...baseMessages, ...optimisticMessages];
+  // While streaming content is visible, always show full messages array.
+  // The streaming content (effectiveStreamingMessage) renders on top of history.
+  // We never filter/slice messages — that caused a blank DOM frame on clearStreamingState.
+  const allMessages = [...messages, ...optimisticMessages];
 
   // Propagate SSE connection state up to App for the header badge
   useEffect(() => {
