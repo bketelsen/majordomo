@@ -147,15 +147,27 @@ function normalizeTimestamp(ts: unknown): number {
   return Date.now();
 }
 
+// Cap any single content blob sent to the browser. Large pastes, file reads,
+// or bash dumps can be megabytes; ReactMarkdown will recursively parse the
+// entire string and lock the browser thread.
+const MAX_CONTENT_CHARS = 20_000;
+
+function truncateContent(text: string): string {
+  if (text.length <= MAX_CONTENT_CHARS) return text;
+  const removed = text.length - MAX_CONTENT_CHARS;
+  return text.slice(0, MAX_CONTENT_CHARS) + `\n\n_[… ${removed.toLocaleString()} characters truncated]_`;
+}
+
 function extractTextContent(content: unknown): string {
-  if (typeof content === "string") return content;
+  if (typeof content === "string") return truncateContent(content);
   if (!Array.isArray(content)) return "";
-  return content
+  const full = content
     .filter((c): c is { type: string; text?: string } => !!c && typeof c === "object" && "type" in c)
     .filter(c => c.type === "text")
     .map(c => c.text ?? "")
     .join("")
     .trim();
+  return truncateContent(full);
 }
 
 // ── Message cache for performance ─────────────────────────────────────────────
@@ -357,7 +369,7 @@ function parseMessageEntry(
       let textBuffer = "";
       let textIndex = 0;
       const flushTextBuffer = () => {
-        const text = textBuffer.trim();
+        const text = truncateContent(textBuffer.trim());
         if (!text) {
           textBuffer = "";
           return;
