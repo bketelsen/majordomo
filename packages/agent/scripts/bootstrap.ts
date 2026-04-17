@@ -5,6 +5,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
+import { fileExists } from "../../shared/lib/fs-helpers.ts";
 
 const HOME = process.env.HOME ?? "/root";
 const MAJORDOMO_STATE = process.env.MAJORDOMO_STATE ?? path.join(HOME, ".majordomo");
@@ -14,7 +15,7 @@ const DATA_ROOT = path.join(MAJORDOMO_STATE, "data");
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function writeIfNotExists(filePath: string, content: string): Promise<{ created: boolean }> {
-  const exists = await fs.access(filePath).then(() => true).catch(() => false);
+  const exists = await fileExists(filePath);
   if (exists) return { created: false };
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, content, "utf-8");

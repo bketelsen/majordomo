@@ -21,6 +21,7 @@ import { runPersonaWizardIfNeeded } from "./lib/persona-wizard.ts";
 import { app as webApp, PORT as WEB_PORT, webEvents, websocketHandler } from "../web/src/server.ts";
 import { isCompiledBinary, defaultAgents, defaultWorkflows, personaContent } from "../web/src/assets.ts";
 import { createLogger } from "./lib/logger.ts";
+import { fileExists } from "../shared/lib/fs-helpers.ts";
 import "../shared/types.ts";
 
 const logger = createLogger({ context: { component: "service" } });
@@ -72,12 +73,12 @@ async function writeEmbeddedDefaults(
   
   for (const [name, content] of Object.entries(agents)) {
     const file = path.join(agentsDir, `${name}.md`);
-    const exists = await fs.access(file).then(() => true).catch(() => false);
+    const exists = await fileExists(file);
     if (!exists) await fs.writeFile(file, content);
   }
   for (const [name, content] of Object.entries(workflows)) {
     const file = path.join(workflowsDir, `${name}.yaml`);
-    const exists = await fs.access(file).then(() => true).catch(() => false);
+    const exists = await fileExists(file);
     if (!exists) await fs.writeFile(file, content);
   }
 }
@@ -86,7 +87,7 @@ async function writeEmbeddedDefaults(
 let PERSONA_FILE: string;
 if (isCompiledBinary()) {
   PERSONA_FILE = path.join(MAJORDOMO_STATE, "persona.md");
-  const exists = await fs.access(PERSONA_FILE).then(() => true).catch(() => false);
+  const exists = await fileExists(PERSONA_FILE);
   if (!exists) {
     await fs.writeFile(PERSONA_FILE, personaContent);
   }
@@ -119,7 +120,7 @@ const resolvedPaths = {
 };
 
 for (const p of [MEMORY_ROOT, path.join(MEMORY_ROOT, "domains.yml")]) {
-  const exists = await fs.access(p).then(() => true).catch(() => false);
+  const exists = await fileExists(p);
   if (!exists) {
     logger.error("Required path not found", { path: p, message: "Run: bun packages/agent/scripts/bootstrap.ts" });
     process.exit(1);
@@ -172,7 +173,7 @@ sharedEventBus.on("workflow:complete", (data: unknown) => webEvents.emit("workfl
 // TLS cert paths — use Tailscale certs if available for direct HTTPS without proxy
 const TLS_CERT = process.env.TLS_CERT_FILE ?? path.join(MAJORDOMO_STATE, 'tls', 'framework.goat-snake.ts.net.crt');
 const TLS_KEY  = process.env.TLS_KEY_FILE  ?? path.join(MAJORDOMO_STATE, 'tls', 'framework.goat-snake.ts.net.key');
-const tlsAvailable = await fs.access(TLS_CERT).then(() => true).catch(() => false);
+const tlsAvailable = await fileExists(TLS_CERT);
 
 // Use Bun.serve for native WebSocket support (/term PTY endpoint)
 Bun.serve({

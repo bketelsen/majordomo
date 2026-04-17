@@ -16,6 +16,7 @@ import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding
 import { Type } from "@sinclair/typebox";
 import { type CogDomain, type DomainsManifest, readDomainsManifest } from "../../../shared/lib/domains.ts";
 import { createLogger } from "../../lib/logger.ts";
+import { fileExists } from "../../../shared/lib/fs-helpers.ts";
 import "../../../shared/types.ts";
 
 const logger = createLogger({ context: { component: "domain-manager" } });
@@ -89,7 +90,7 @@ async function generateDomainCommand(
   const commandPath = path.join(projectRoot, ".claude", "commands", `${commandId}.md`);
 
   // Never overwrite an existing hand-crafted command file
-  const exists = await fs.access(commandPath).then(() => true).catch(() => false);
+  const exists = await fileExists(commandPath);
   if (exists) return;
 
   let template: string;
@@ -149,7 +150,7 @@ async function scaffoldDomainFiles(memoryRoot: string, domainPath: string, files
 
   for (const file of files) {
     const filePath = path.join(domainDir, `${file}.md`);
-    const exists = await fs.access(filePath).then(() => true).catch(() => false);
+    const exists = await fileExists(filePath);
     if (exists) continue; // Don't overwrite existing files
 
     const l0 = l0Map[file] ?? `${domainPath} ${file}`;

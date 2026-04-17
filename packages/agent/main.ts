@@ -27,6 +27,7 @@ import { cogMemoryExtensionFactory } from "./extensions/cog-memory/index.ts";
 import { domainManagerExtensionFactory } from "./extensions/domain-manager/index.ts";
 import { subagentManagerExtensionFactory } from "./extensions/subagent-manager/index.ts";
 import { schedulerExtensionFactory } from "./extensions/scheduler/index.ts";
+import { fileExists } from "../shared/lib/fs-helpers.ts";
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 
@@ -50,14 +51,14 @@ if (!domain || domain.startsWith("--")) {
 
 // ── Sanity checks ────────────────────────────────────────────────────────────
 
-const memoryExists = await fs.access(MEMORY_ROOT).then(() => true).catch(() => false);
+const memoryExists = await fileExists(MEMORY_ROOT);
 if (!memoryExists) {
   console.error("❌  memory/ directory not found. Run: bun scripts/bootstrap.ts");
   process.exit(1);
 }
 
 const domainsFile = path.join(MEMORY_ROOT, "domains.yml");
-const domainsExist = await fs.access(domainsFile).then(() => true).catch(() => false);
+const domainsExist = await fileExists(domainsFile);
 if (!domainsExist) {
   console.error("❌  memory/domains.yml not found. Run: bun scripts/bootstrap.ts");
   process.exit(1);
