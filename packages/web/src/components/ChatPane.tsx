@@ -133,16 +133,23 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
   }
   wasStreamingRef.current = isStreaming;
 
-  // While streamingMessage is active, only show pre-stream messages.
-  // This makes streaming content and committed messages mutually exclusive —
-  // no double is physically possible regardless of reload timing.
-  const baseMessages = streamingMessage
+  // Keep the last known streaming content in a ref so we can show it
+  // after clearStreamingState fires (streamingMessage goes null) until
+  // the reload confirms the committed message is in messages.
+  const lastStreamingMessageRef = useRef<typeof streamingMessage>(null);
+  if (streamingMessage) lastStreamingMessageRef.current = streamingMessage;
+
+  // Use the frozen snapshot when streamingMessage has cleared but reload hasn't landed yet.
+  // Goes null atomically in the same render that messages.length grows.
+  const effectiveStreamingMessage = messages.length <= streamStartLengthRef.current
+    ? (streamingMessage ?? lastStreamingMessageRef.current)
+    : null;
+
+  // While streaming content is visible, only show pre-stream messages (no double).
+  const baseMessages = effectiveStreamingMessage
     ? messages.slice(0, streamStartLengthRef.current)
     : messages;
   const allMessages = [...baseMessages, ...optimisticMessages];
-
-  // Always pass streaming props — MessageList renders them when non-null/non-empty.
-  const showStreaming = true;
 
   // Propagate SSE connection state up to App for the header badge
   useEffect(() => {
@@ -252,11 +259,11 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
       ) : (
         <MessageList
           messages={allMessages}
-          streamingText={showStreaming ? streamingText : ''}
-          thinkingText={showStreaming ? thinkingText : ''}
-          toolCalls={showStreaming ? toolCalls : []}
-          isStreaming={isStreaming && showStreaming}
-          streamingMessage={showStreaming ? streamingMessage : null}
+          streamingText={effectiveStreamingMessage ? '' : streamingText}
+          thinkingText={effectiveStreamingMessage ? '' : thinkingText}
+          toolCalls={effectiveStreamingMessage ? [] : toolCalls}
+          isStreaming={isStreaming}
+          streamingMessage={effectiveStreamingMessage}
         />
       )}
 
