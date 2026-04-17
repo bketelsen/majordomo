@@ -124,30 +124,25 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
 
   // Only track optimistic user messages — everything else comes from useMessages directly.
   const [optimisticMessages, setOptimisticMessages] = useState<TimelineItem[]>([]);
-  // Track message count at stream start; hide streaming content once committed messages arrive.
+
+  // Track streaming state transitions inline during render (synchronous, no effect lag).
+  const wasStreamingRef = useRef(false);
   const streamStartLengthRef = useRef(0);
-  const [hideStreaming, setHideStreaming] = useState(false);
+  if (isStreaming && !wasStreamingRef.current) {
+    // Streaming just started — snapshot message count
+    streamStartLengthRef.current = messages.length;
+  }
+  wasStreamingRef.current = isStreaming;
+
+  // Streaming content is visible only while streaming AND messages hasn't grown.
+  // The moment reload lands (messages.length increases), streaming hides atomically.
+  const showStreaming = isStreaming && messages.length <= streamStartLengthRef.current;
+  const allMessages = [...messages, ...optimisticMessages];
 
   // Propagate SSE connection state up to App for the header badge
   useEffect(() => {
     onConnectionChange?.(isConnected);
   }, [isConnected, onConnectionChange]);
-
-  // When streaming starts, snapshot message count and reset hideStreaming
-  useEffect(() => {
-    if (isStreaming) {
-      streamStartLengthRef.current = messages.length;
-      setHideStreaming(false);
-    }
-  }, [isStreaming]);
-
-  // When messages grows past the snapshot, the committed message is in the DOM —
-  // hide streaming content immediately so there's no double.
-  useEffect(() => {
-    if (messages.length > streamStartLengthRef.current) {
-      setHideStreaming(true);
-    }
-  }, [messages.length]);
 
   // When agent:done fires, reload from DB and clear optimistic messages.
   useEffect(() => {
@@ -156,9 +151,6 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
       reload().finally(() => setOptimisticMessages([]));
     }
   }, [newMessage, clearNewMessage]);
-
-  const showStreaming = !hideStreaming && messages.length <= streamStartLengthRef.current;
-  const allMessages = [...messages, ...optimisticMessages];
 
   const handleSendMessage = async (text: string) => {
     // Optimistically add user message
