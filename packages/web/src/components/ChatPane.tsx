@@ -130,14 +130,13 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
     onConnectionChange?.(isConnected);
   }, [isConnected, onConnectionChange]);
 
-  // When agent:done fires, reload from DB and clear optimistic messages.
+  // When agent:done fires, reload from DB immediately. Streaming content stays
+  // visible (clearStreamingState fires at 800ms in useSSE) so there's no gap
+  // where neither streaming nor committed message is shown.
   useEffect(() => {
     if (newMessage) {
       clearNewMessage();
-      setTimeout(() => {
-        reload();
-        setOptimisticMessages([]);
-      }, 500);
+      reload().finally(() => setOptimisticMessages([]));
     }
   }, [newMessage, clearNewMessage]);
 

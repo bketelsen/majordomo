@@ -205,7 +205,7 @@ export function useSSE(activeDomain: string, onDomainEvent?: (event: string) => 
                 timestamp: Date.now(),
               },
             }));
-            setTimeout(clearStreamingState, 100);
+            setTimeout(clearStreamingState, 800);
             break;
 
           case 'agent:error':
