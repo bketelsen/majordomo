@@ -33,17 +33,21 @@ export const MessageList: React.FC<MessageListProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Always scroll to bottom when a new committed message arrives or streaming starts/ends.
   useEffect(() => {
-    // Only auto-scroll if the user is already near the bottom (within 200px).
-    // This prevents the jarring repeated scroll-jumps that happen during
-    // thinking (thinkingText updates on every token) and tool calls.
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streamingMessage]);
+
+  // Mid-stream updates (thinking tokens, tool call updates): only scroll if
+  // already near the bottom so we don't hijack the user's scroll position.
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     if (distanceFromBottom < 200) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, streamingMessage, streamingText, thinkingText, toolCalls]);
+  }, [streamingText, thinkingText, toolCalls]);
 
   return (
     <div
