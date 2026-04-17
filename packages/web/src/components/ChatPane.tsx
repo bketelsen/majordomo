@@ -150,6 +150,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
   if (newMessage && !agentDoneRef.current) {
     agentDoneRef.current = true;
     expectingReloadRef.current = true;
+    lastStreamingMessageRef.current = null; // drop frozen snapshot immediately on agent:done
   }
   if (isStreaming && !wasStreamingRef.current) {
     agentDoneRef.current = false;
