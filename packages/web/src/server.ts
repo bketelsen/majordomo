@@ -91,8 +91,27 @@ webEvents.on("agent:tool_end", (data: { domain: string; toolName: string; isErro
   broadcast("agent:tool_end", data, data.domain);
 });
 // Phase 1: Forward full message state (parallel to existing delta events)
+// Truncate text/thinking content blocks before broadcasting so a large tool
+// result or paste doesn't send megabytes to the browser on every token.
 webEvents.on("agent:message_update", (data: { domain: string; message: any }) => {
-  broadcast("agent:message_update", data, data.domain);
+  const message = data.message;
+  if (message?.content && Array.isArray(message.content)) {
+    const truncated = {
+      ...message,
+      content: message.content.map((block: any) => {
+        if (block.type === 'text' && typeof block.text === 'string') {
+          return { ...block, text: truncateContent(block.text) };
+        }
+        if (block.type === 'thinking' && typeof block.thinking === 'string') {
+          return { ...block, thinking: truncateContent(block.thinking) };
+        }
+        return block;
+      }),
+    };
+    broadcast("agent:message_update", { ...data, message: truncated }, data.domain);
+  } else {
+    broadcast("agent:message_update", data, data.domain);
+  }
 });
 webEvents.on("domain:created", (data: unknown) => broadcast("domain:created", data));
 webEvents.on("domain:deleted", (data: unknown) => broadcast("domain:deleted", data));
