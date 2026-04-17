@@ -29,8 +29,11 @@ import { subagentManagerExtensionFactory } from "./extensions/subagent-manager/i
 import { schedulerExtensionFactory } from "./extensions/scheduler/index.ts";
 import { fileExists } from "../shared/lib/fs-helpers.ts";
 import { formatError } from "../shared/lib/error-helpers.ts";
+import { createLogger } from "./lib/logger.ts";
 
 // ── Paths ────────────────────────────────────────────────────────────────────
+
+const logger = createLogger({ context: { component: "main" } });
 
 const PROJECT_ROOT = process.cwd();
 const MEMORY_ROOT = path.join(PROJECT_ROOT, "memory");
@@ -46,7 +49,7 @@ const domainFlag = args.indexOf("--domain");
 const domain = domainFlag !== -1 ? args[domainFlag + 1] : "general";
 
 if (!domain || domain.startsWith("--")) {
-  console.error("Usage: bun main.ts [--domain <domain-id>]");
+  logger.error("Usage: bun main.ts [--domain <domain-id>]");
   process.exit(1);
 }
 
@@ -54,14 +57,14 @@ if (!domain || domain.startsWith("--")) {
 
 const memoryExists = await fileExists(MEMORY_ROOT);
 if (!memoryExists) {
-  console.error("❌  memory/ directory not found. Run: bun scripts/bootstrap.ts");
+  logger.error("❌  memory/ directory not found. Run: bun scripts/bootstrap.ts");
   process.exit(1);
 }
 
 const domainsFile = path.join(MEMORY_ROOT, "domains.yml");
 const domainsExist = await fileExists(domainsFile);
 if (!domainsExist) {
-  console.error("❌  memory/domains.yml not found. Run: bun scripts/bootstrap.ts");
+  logger.error("❌  memory/domains.yml not found. Run: bun scripts/bootstrap.ts");
   process.exit(1);
 }
 
@@ -79,8 +82,8 @@ try {
   // Inject active domain into persona
   personaText = personaText.replace("{{ACTIVE_DOMAIN}}", domain);
 } catch (err) {
-  console.debug('[main] persona/majordomo.md not found, using default persona:', err);
-  console.warn("⚠️  persona/majordomo.md not found, using default persona");
+  logger.debug("persona/majordomo.md not found, using default persona", { error: err });
+  logger.warn("⚠️  persona/majordomo.md not found, using default persona");
 }
 
 // ── Auth / Model ──────────────────────────────────────────────────────────────
@@ -104,9 +107,11 @@ await loader.reload();
 
 // ── Session ───────────────────────────────────────────────────────────────────
 
-console.log(`\n🏛  Majordomo starting — domain: ${domain}`);
-console.log(`   Session: ${sessionFile}`);
-console.log(`   Memory:  ${MEMORY_ROOT}\n`);
+logger.info("🏛  Majordomo starting", {
+  domain,
+  session: sessionFile,
+  memory: MEMORY_ROOT
+});
 
 const { session, modelFallbackMessage } = await createAgentSession({
   cwd: PROJECT_ROOT,
@@ -118,8 +123,8 @@ const { session, modelFallbackMessage } = await createAgentSession({
 });
 
 if (modelFallbackMessage) {
-  console.warn(`⚠️  ${modelFallbackMessage}`);
-  console.warn("   Run `pi` and use /login to authenticate with GitHub Copilot or set ANTHROPIC_API_KEY\n");
+  logger.warn(modelFallbackMessage);
+  logger.warn("Run `pi` and use /login to authenticate with GitHub Copilot or set ANTHROPIC_API_KEY");
 }
 
 // ── Event streaming ───────────────────────────────────────────────────────────
@@ -169,7 +174,7 @@ function prompt() {
     }
 
     if (text === "/quit" || text === "/exit") {
-      console.log("👋  Goodbye");
+      logger.info("👋  Goodbye");
       session.dispose();
       rl.close();
       process.exit(0);
@@ -178,7 +183,7 @@ function prompt() {
     try {
       await session.prompt(text);
     } catch (err) {
-      console.error(`\n❌  Error: ${formatError(err)}\n`);
+      logger.error("Error during prompt", { error: formatError(err) });
       prompt();
     }
   });
@@ -186,7 +191,7 @@ function prompt() {
 
 // Handle Ctrl+C gracefully
 rl.on("close", () => {
-  console.log("\n👋  Goodbye");
+  logger.info("👋  Goodbye");
   session.dispose();
   process.exit(0);
 });

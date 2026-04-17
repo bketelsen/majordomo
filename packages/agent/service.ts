@@ -130,9 +130,8 @@ for (const p of [MEMORY_ROOT, path.join(MEMORY_ROOT, "domains.yml")]) {
 
 // ── Domain context manager ───────────────────────────────────────────────────
 
-console.log("\n🏛  Majordomo Service starting...\n");
+logger.info("🏛  Majordomo Service starting");
 logger.info("Resolved startup paths", resolvedPaths);
-console.log("");
 
 const manager = new DomainContextManager({
   projectRoot: PROJECT_ROOT,
@@ -214,11 +213,12 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   logger.info("Set it in .env or environment to enable Telegram integration");
 }
 
-console.log("\n✅  Majordomo Service ready\n");
-console.log("   Domains:", (await manager.domains()).join(", ") || "(none)");
-console.log("   Telegram:", telegram ? "connected" : "disabled");
-console.log(`   Web:      http://localhost:${WEB_PORT}`);
-console.log("   Tailscale: run: tailscale serve --bg https / http://localhost:" + WEB_PORT + "\n");
+logger.info("✅  Majordomo Service ready", {
+  domains: (await manager.domains()).join(", ") || "(none)",
+  telegram: telegram ? "connected" : "disabled",
+  web: `http://localhost:${WEB_PORT}`,
+  tailscale: `tailscale serve --bg https / http://localhost:${WEB_PORT}`
+});
 
 // Expose telegram instance for in-process web relay
 (globalThis as Record<string, unknown>).__majordomoTelegram = telegram;
