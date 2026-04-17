@@ -24,6 +24,7 @@ import { EventEmitter } from "node:events";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createLogger } from "../../lib/logger.ts";
+import { formatError } from "../../../shared/lib/error-helpers.ts";
 import { runMigrations, type Migration } from "../../lib/db-migrations.ts";
 import "../../../shared/types.ts";
 
@@ -476,7 +477,7 @@ export function schedulerExtensionFactory(opts: SchedulerOptions) {
             ctx.ui.notify("Failed to write daily journal (vault not configured)", "error");
           }
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = formatError(err);
           ctx.ui.notify(`✗ Failed to write daily journal: ${message}`, "error");
         }
       },

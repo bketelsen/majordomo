@@ -26,6 +26,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { type ExtensionAPI, type AgentToolResult, withFileMutationQueue } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createLogger } from "../../lib/logger.ts";
+import { formatError } from "../../../shared/lib/error-helpers.ts";
 import { getVaultRoot, writeToVault } from "../../lib/obsidian.ts";
 import * as outline from "../../lib/outline.ts";
 import { getAgenticContext } from "../../lib/mentat.ts";
@@ -817,7 +818,7 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
               details: { path: result.path, created: result.created },
             };
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = formatError(err);
             return {
               content: [
                 {
@@ -997,7 +998,7 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
               };
             }
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = formatError(err);
             return {
               content: [
                 {
@@ -1116,7 +1117,7 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
               },
             };
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = formatError(err);
             return {
               content: [
                 {
@@ -1181,7 +1182,7 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
               },
             };
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = formatError(err);
             return {
               content: [
                 {
@@ -1262,7 +1263,7 @@ export function cogMemoryExtensionFactory(opts: CogMemoryOptions) {
               },
             };
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = formatError(err);
             return {
               content: [
                 {

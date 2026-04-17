@@ -12,6 +12,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
+import { formatError } from "../../shared/lib/error-helpers.ts";
 
 interface SessionMessage {
   timestamp: string;
@@ -83,7 +84,7 @@ async function migrateSessionHistory(dataRoot: string): Promise<void> {
         console.log(`[migrate]   → ${domainId}/session.jsonl not found (empty domain)`);
         stats[domainId] = 0;
       } else {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = formatError(err);
         console.warn(`[migrate]   → Could not read ${domainId}/session.jsonl:`, message);
         stats[domainId] = 0;
       }
@@ -125,7 +126,7 @@ async function migrateSessionHistory(dataRoot: string): Promise<void> {
       await fs.rename(src, dst);
       console.log(`[migrate]   → ${dir.name}/ → .archive/${dir.name}/`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatError(err);
       console.warn(`[migrate]   → Could not archive ${dir.name}:`, message);
     }
   }

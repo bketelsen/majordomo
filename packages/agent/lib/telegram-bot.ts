@@ -14,6 +14,7 @@ import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import yaml from "js-yaml";
 import { loadYamlFile } from "../../shared/lib/yaml-helpers";
+import { formatError } from "../../shared/lib/error-helpers.ts";
 import { Bot, type Context } from "grammy";
 import type { DomainContextManager } from "./domain-context-manager.ts";
 import { createLogger } from "./logger.ts";
@@ -179,7 +180,7 @@ export class TelegramBot {
       }
     } catch (err) {
       clearInterval(typingInterval);
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatError(err);
       logger.error(`Error processing message in domain '${domain}'`, { error: message });
       await this.reply(ctx, `❌ Error: ${message}`);
     }
@@ -207,7 +208,7 @@ export class TelegramBot {
         return; // Success
       } catch (err) {
         lastError = err;
-        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorMsg = formatError(err);
         logger.error(`Failed to reply (attempt ${attempt}/${MAX_RETRY_ATTEMPTS})`, { error: errorMsg });
 
         if (attempt < MAX_RETRY_ATTEMPTS && this.isRetriableError(err)) {
@@ -219,7 +220,7 @@ export class TelegramBot {
     }
 
     // All retries exhausted - send fallback notification
-    const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+    const errorMsg = formatError(lastError);
     logger.error(`Message delivery failed after ${MAX_RETRY_ATTEMPTS} attempts`, { error: errorMsg });
     
     // Try to send a fallback error message (no retry to avoid infinite loop)
@@ -242,7 +243,7 @@ export class TelegramBot {
         return; // Success
       } catch (err) {
         lastError = err;
-        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorMsg = formatError(err);
         logger.error(`Failed to send message (attempt ${attempt}/${MAX_RETRY_ATTEMPTS})`, { error: errorMsg });
 
         if (attempt < MAX_RETRY_ATTEMPTS && this.isRetriableError(err)) {
@@ -254,7 +255,7 @@ export class TelegramBot {
     }
 
     // All retries exhausted - send fallback notification
-    const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+    const errorMsg = formatError(lastError);
     logger.error(`Message delivery failed after ${MAX_RETRY_ATTEMPTS} attempts`, { error: errorMsg });
     
     // Try to send a fallback error message (no retry to avoid infinite loop)

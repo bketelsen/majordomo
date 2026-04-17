@@ -12,6 +12,7 @@ import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import yaml from "js-yaml";
 import { loadYamlFile } from "../../../shared/lib/yaml-helpers";
+import { formatError } from "../../../shared/lib/error-helpers.ts";
 import { type ExtensionAPI, type AgentToolResult } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type CogDomain, type DomainsManifest, readDomainsManifest } from "../../../shared/lib/domains.ts";
@@ -225,7 +226,7 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
               };
             }
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = formatError(err);
             return {
               content: [{ 
                 type: "text", 
@@ -606,7 +607,7 @@ export function domainManagerExtensionFactory(opts: DomainManagerOptions) {
             },
           };
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = formatError(err);
           return {
             content: [{
               type: "text",

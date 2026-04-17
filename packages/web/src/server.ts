@@ -26,6 +26,7 @@ import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
 import { Database } from "bun:sqlite";
 import { readDomainsManifest, type CogDomain } from "../../shared/lib/domains.ts";
+import { formatError } from "../../shared/lib/error-helpers.ts";
 import "../../shared/types.ts";
 import { createLogger } from "../../agent/lib/logger.ts";
 
@@ -469,7 +470,7 @@ function parseMessageEntry(
     }
   } catch (error) {
     // Log corruption and emit metrics
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = formatError(error);
     const preview = line.length > 100 ? line.substring(0, 100) + '...' : line;
     
     // Track corruption stats
@@ -1075,7 +1076,7 @@ app.get("/api/health/sessions", async (c) => {
       timestamp: Date.now(),
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("GET /api/health/sessions failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to check session health", details: message }, 500);
   }
@@ -1087,7 +1088,7 @@ app.post("/api/health/sessions/reset", (c) => {
     corruptionStats.clear();
     return c.json({ success: true, message: "Corruption stats reset" });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("POST /api/health/sessions/reset failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to reset corruption stats", details: message }, 500);
   }
@@ -1109,7 +1110,7 @@ app.post("/api/health/sessions/cleanup", (c) => {
       removed
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("POST /api/health/sessions/cleanup failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to cleanup corruption stats", details: message }, 500);
   }
@@ -1123,7 +1124,7 @@ app.get("/api/domains", async (c) => {
     const manager = globalThis.__majordomoManager;
     return c.json({ domains, activeDomain: manager?.getDomain() ?? "general" });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("GET /api/domains failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to fetch domains", details: message }, 500);
   }
@@ -1145,7 +1146,7 @@ app.post("/api/domains/:id/activate", async (c) => {
       return c.json({ success: false, error: String(err) }, 400);
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("POST /api/domains/:id/activate failed", err instanceof Error ? err : { error: message });
     return c.json({ success: false, error: "Failed to activate domain", details: message }, 500);
   }
@@ -1173,7 +1174,7 @@ app.get("/api/messages/:domain", async (c) => {
     const messages = await readSessionMessages(domain, limit, before);
     return c.json({ messages, domain });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("GET /api/messages/:domain failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to fetch messages", details: message }, 500);
   }
@@ -1235,7 +1236,7 @@ app.post("/api/messages/:domain", async (c) => {
 
     return c.json({ queued: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("POST /api/messages/:domain failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to send message", details: message }, 500);
   }
@@ -1380,7 +1381,7 @@ app.get("/api/widgets/:name", async (c) => {
     if (data === null) return c.json({ error: "Widget not found" }, 404);
     return c.json({ widget: name, data });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("GET /api/widgets/:name failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to fetch widget data", details: message }, 500);
   }
@@ -1395,7 +1396,7 @@ app.post("/api/priorities/done", async (c) => {
     const result = await markPriorityDone(domain, task);
     return result.ok ? c.json({ ok: true }) : c.json({ error: result.error }, 400);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("POST /api/priorities/done failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to mark priority done", details: message }, 500);
   }
@@ -1422,7 +1423,7 @@ app.post("/api/containers/:runtime/:id/:action", async (c) => {
     
     return c.json({ ok });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("POST /api/containers/:runtime/:id/:action failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to control container", details: message }, 500);
   }
@@ -1476,7 +1477,7 @@ app.post("/api/schedules/:id/trigger", async (c) => {
       return c.json({ error: String(err) }, 500);
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("POST /api/schedules/:id/trigger failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to trigger schedule", details: message }, 500);
   }
@@ -1516,7 +1517,7 @@ app.post("/api/obsidian-sync", async (c) => {
       created: result.created
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     return c.json({ 
       success: false, 
       error: message 
@@ -1564,7 +1565,7 @@ app.post("/webhooks/:secret", async (c) => {
 
     return c.json({ received: true, job: jobId });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("POST /webhooks/:secret failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to process webhook", details: message }, 500);
   }
@@ -1618,7 +1619,7 @@ app.post("/webhooks/jobs/:id", async (c) => {
 
     return c.json({ triggered: true, job: jobId, payload });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatError(err);
     logger.error("POST /webhooks/jobs/:id failed", err instanceof Error ? err : { error: message });
     return c.json({ error: "Failed to trigger webhook job", details: message }, 500);
   }

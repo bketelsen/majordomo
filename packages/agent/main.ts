@@ -28,6 +28,7 @@ import { domainManagerExtensionFactory } from "./extensions/domain-manager/index
 import { subagentManagerExtensionFactory } from "./extensions/subagent-manager/index.ts";
 import { schedulerExtensionFactory } from "./extensions/scheduler/index.ts";
 import { fileExists } from "../shared/lib/fs-helpers.ts";
+import { formatError } from "../shared/lib/error-helpers.ts";
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ function prompt() {
     try {
       await session.prompt(text);
     } catch (err) {
-      console.error(`\n❌  Error: ${err instanceof Error ? err.message : String(err)}\n`);
+      console.error(`\n❌  Error: ${formatError(err)}\n`);
       prompt();
     }
   });
