@@ -31,13 +31,23 @@ export const MessageList: React.FC<MessageListProps> = ({
   streamingMessage = null,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Only auto-scroll if the user is already near the bottom (within 200px).
+    // This prevents the jarring repeated scroll-jumps that happen during
+    // thinking (thinkingText updates on every token) and tool calls.
+    const container = containerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom < 200) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, streamingMessage, streamingText, thinkingText, toolCalls]);
 
   return (
     <div
+      ref={containerRef}
       style={{
         flex: 1,
         overflowY: 'auto',
