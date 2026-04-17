@@ -48,6 +48,14 @@ export interface SSEState {
 export function useSSE(activeDomain: string) {
   const activeDomainRef = useRef(activeDomain);
   activeDomainRef.current = activeDomain; // keep ref in sync without re-running effect
+
+  // Throttle agent:message_update renders to one per animation frame.
+  // Tokens can arrive 10–30×/sec; ReactMarkdown re-parsing the full text on
+  // every token saturates the main thread. We buffer the latest message in a
+  // ref and only flush it to state inside rAF.
+  const pendingMessageRef = useRef<StreamingMessage | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+
   const [state, setState] = useState<SSEState>({
     isConnected: false,
     isStreaming: false,
@@ -141,11 +149,17 @@ export function useSSE(activeDomain: string) {
             break;
 
           case 'agent:message_update':
-            setState(prev => ({
-              ...prev,
-              isStreaming: true,
-              streamingMessage: data.message,
-            }));
+            // Buffer the latest message; flush to state at most once per frame.
+            pendingMessageRef.current = data.message;
+            if (rafIdRef.current === null) {
+              rafIdRef.current = requestAnimationFrame(() => {
+                rafIdRef.current = null;
+                const msg = pendingMessageRef.current;
+                if (msg) {
+                  setState(prev => ({ ...prev, isStreaming: true, streamingMessage: msg }));
+                }
+              });
+            }
             break;
 
           case 'agent:tool_start':
@@ -240,6 +254,10 @@ export function useSSE(activeDomain: string) {
     return () => {
       destroyed = true;
       evtSource?.close();
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
     };
   }, []); // SSE connects once — domain filtering uses ref, no reconnect needed
 
