@@ -7,9 +7,11 @@ import React, { useState, useRef, useEffect, KeyboardEvent } from 'react';
 interface InputAreaProps {
   onSend: (text: string) => void;
   disabled?: boolean;
+  isStreaming?: boolean;
+  onStop?: () => void;
 }
 
-export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled = false }) => {
+export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled = false, isStreaming = false, onStop }) => {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -79,43 +81,74 @@ export const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled = false }
           e.currentTarget.style.boxShadow = 'none';
         }}
       />
-      <button
-        onClick={handleSend}
-        disabled={disabled || !text.trim()}
-        style={{
-          padding: '8px 16px',
-          background: disabled
-            ? 'var(--accent-dim)'
-            : 'linear-gradient(135deg, var(--accent), var(--accent-dim))',
-          border: 'none',
-          borderRadius: 'var(--radius)',
-          color: '#0c0a09',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          fontSize: '12px',
-          fontWeight: 700,
-          transition: 'all 0.15s',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          fontFamily: 'var(--font)',
-          touchAction: 'manipulation',
-          minHeight: '44px',
-          flexShrink: 0,
-          opacity: disabled ? 0.6 : 1,
-        }}
-        onMouseEnter={(e) => {
-          if (!disabled) {
-            e.currentTarget.style.background = 'linear-gradient(135deg, #f59e0b, var(--accent))';
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!disabled) {
-            e.currentTarget.style.background =
-              'linear-gradient(135deg, var(--accent), var(--accent-dim))';
-          }
-        }}
-      >
-        Send
-      </button>
+      {isStreaming && onStop ? (
+        <button
+          onClick={onStop}
+          style={{
+            padding: '8px 16px',
+            background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+            border: 'none',
+            borderRadius: 'var(--radius)',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 700,
+            transition: 'all 0.15s',
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+            fontFamily: 'var(--font)',
+            touchAction: 'manipulation',
+            minHeight: '44px',
+            flexShrink: 0,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'linear-gradient(135deg, #dc2626, #b91c1c)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+          }}
+        >
+          Stop
+        </button>
+      ) : (
+        <button
+          onClick={handleSend}
+          disabled={disabled || !text.trim()}
+          style={{
+            padding: '8px 16px',
+            background: disabled
+              ? 'var(--accent-dim)'
+              : 'linear-gradient(135deg, var(--accent), var(--accent-dim))',
+            border: 'none',
+            borderRadius: 'var(--radius)',
+            color: '#0c0a09',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            fontSize: '12px',
+            fontWeight: 700,
+            transition: 'all 0.15s',
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+            fontFamily: 'var(--font)',
+            touchAction: 'manipulation',
+            minHeight: '44px',
+            flexShrink: 0,
+            opacity: disabled ? 0.6 : 1,
+          }}
+          onMouseEnter={(e) => {
+            if (!disabled) {
+              e.currentTarget.style.background = 'linear-gradient(135deg, #f59e0b, var(--accent))';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (!disabled) {
+              e.currentTarget.style.background =
+                'linear-gradient(135deg, var(--accent), var(--accent-dim))';
+            }
+          }}
+        >
+          Send
+        </button>
+      )}
     </div>
   );
 };

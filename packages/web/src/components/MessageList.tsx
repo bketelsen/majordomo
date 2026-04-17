@@ -1,17 +1,13 @@
 /**
- * MessageList - Scrollable message history with streaming support
+ * MessageList - Clean, consolidated message rendering with streaming support
+ * Replaces the previous fragmented implementation with a single, maintainable component
  */
 
 import React, { useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { TimelineItem } from '../hooks/useMessages';
-import { ToolCall } from '../hooks/useSSE';
-import { Message } from './Message';
-import { ToolCallCard } from './ToolCallCard';
-import { ThinkingBlock } from './ThinkingBlock';
-import { StreamingMessageBlocks } from './StreamingMessageBlocks';
-import type { StreamingMessage } from '../hooks/useSSE';
+import { ToolCall, StreamingContentBlock, StreamingMessage } from '../hooks/useSSE';
 
 interface MessageListProps {
   messages: TimelineItem[];
@@ -21,6 +17,390 @@ interface MessageListProps {
   isStreaming?: boolean;
   streamingMessage?: StreamingMessage | null;
 }
+
+// Markdown styling components
+const markdownComponents = {
+  pre: ({ children }: any) => (
+    <pre
+      style={{
+        background: 'rgba(0,0,0,0.3)',
+        padding: '8px',
+        borderRadius: '4px',
+        overflowX: 'auto',
+        margin: '8px 0',
+        fontFamily: 'var(--font-mono)',
+        fontSize: '13px',
+      }}
+    >
+      {children}
+    </pre>
+  ),
+  code: ({ inline, children, ...props }: any) =>
+    inline ? (
+      <code
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: '14px',
+          background: 'rgba(0,0,0,0.3)',
+          padding: '1px 4px',
+          borderRadius: '3px',
+        }}
+        {...props}
+      >
+        {children}
+      </code>
+    ) : (
+      <code style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }} {...props}>
+        {children}
+      </code>
+    ),
+  strong: ({ children }: any) => <strong style={{ color: 'var(--text)' }}>{children}</strong>,
+  em: ({ children }: any) => <em style={{ color: 'var(--text-dim)' }}>{children}</em>,
+};
+
+// ThinkingBlock component
+const ThinkingBlock: React.FC<{ content: string; isStreaming?: boolean }> = ({ content, isStreaming }) => {
+  const [expanded, setExpanded] = React.useState(false);
+
+  return (
+    <div
+      style={{
+        alignSelf: 'flex-start',
+        maxWidth: 'min(85%, 100%)',
+        borderRadius: 'var(--radius)',
+        padding: '10px 12px',
+        border: '1px solid rgba(251, 191, 36, 0.22)',
+        background: 'rgba(251, 191, 36, 0.08)',
+        color: 'var(--text)',
+      }}
+    >
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          fontSize: '12px',
+          fontWeight: 600,
+          color: 'var(--warning)',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <span>💭</span>
+        <span style={{ fontFamily: 'var(--font-mono)' }}>Thinking</span>
+        {isStreaming && (
+          <span
+            style={{
+              display: 'inline-block',
+              width: '10px',
+              height: '10px',
+              border: '1.5px solid var(--warning)',
+              borderTopColor: 'transparent',
+              borderRadius: '50%',
+              animation: 'spin 0.7s linear infinite',
+            }}
+          />
+        )}
+        <span
+          style={{
+            fontSize: '10px',
+            color: 'var(--text-dim)',
+            marginLeft: 'auto',
+            transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+            transition: 'transform 0.2s',
+          }}
+        >
+          ▾
+        </span>
+      </div>
+      {expanded && (
+        <div
+          style={{
+            marginTop: '8px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '12px',
+            background: 'rgba(0,0,0,0.28)',
+            padding: '6px 8px',
+            borderRadius: '4px',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            lineHeight: 1.5,
+          }}
+        >
+          {content}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ToolCallBlock component
+const ToolCallBlock: React.FC<{ toolCall: ToolCall }> = ({ toolCall }) => {
+  const [expanded, setExpanded] = React.useState(toolCall.status === 'error');
+
+  const getSubtitle = () => {
+    const args = toolCall.args as any;
+    if (!args) return '';
+    if (args.command) return args.command;
+    if (args.file_path) return args.file_path;
+    if (args.path) return args.path;
+    if (args.query) return args.query;
+    for (const key in args) {
+      const val = args[key];
+      if (typeof val === 'string' && val.length > 0 && val.length < 100) {
+        return val;
+      }
+    }
+    return '';
+  };
+
+  const icon = toolCall.status === 'error' ? '✗' : toolCall.status === 'success' ? '✓' : '▸';
+  const statusText = toolCall.status === 'error' ? 'error' : toolCall.status === 'success' ? 'done' : 'running';
+  const subtitle = getSubtitle();
+
+  return (
+    <div
+      style={{
+        alignSelf: 'flex-start',
+        maxWidth: 'min(85%, 100%)',
+        borderRadius: 'var(--radius)',
+        padding: '10px 12px',
+        border: '1px solid rgba(124, 106, 247, 0.22)',
+        background: 'rgba(124, 106, 247, 0.06)',
+        color: 'var(--text)',
+      }}
+    >
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          fontSize: '12px',
+          fontWeight: 600,
+          color: 'var(--accent)',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <span
+          style={{
+            color:
+              toolCall.status === 'error'
+                ? 'var(--error)'
+                : toolCall.status === 'success'
+                ? 'var(--success)'
+                : 'inherit',
+          }}
+        >
+          {icon}
+        </span>
+        <span style={{ fontFamily: 'var(--font-mono)' }}>{toolCall.toolName}</span>
+        {toolCall.status === 'running' && (
+          <span
+            style={{
+              display: 'inline-block',
+              width: '10px',
+              height: '10px',
+              border: '1.5px solid var(--accent)',
+              borderTopColor: 'transparent',
+              borderRadius: '50%',
+              animation: 'spin 0.7s linear infinite',
+            }}
+          />
+        )}
+        <span
+          style={{
+            fontSize: '11px',
+            color:
+              toolCall.status === 'error'
+                ? 'var(--error)'
+                : toolCall.status === 'success'
+                ? 'var(--success)'
+                : 'var(--text-dim)',
+            marginLeft: 'auto',
+          }}
+        >
+          {statusText}
+        </span>
+        <span
+          style={{
+            fontSize: '10px',
+            color: 'var(--text-dim)',
+            transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+            transition: 'transform 0.2s',
+          }}
+        >
+          ▾
+        </span>
+      </div>
+      {expanded && (
+        <>
+          {subtitle && (
+            <div
+              style={{
+                fontSize: '11px',
+                color: 'var(--text-dim)',
+                marginTop: '4px',
+                marginLeft: '22px',
+              }}
+            >
+              {subtitle}
+            </div>
+          )}
+          {toolCall.args && (
+            <div style={{ marginTop: '8px' }}>
+              <div
+                style={{
+                  fontSize: '10px',
+                  color: 'var(--text-dim)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: '4px',
+                }}
+              >
+                Arguments
+              </div>
+              <div
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '12px',
+                  background: 'rgba(0,0,0,0.28)',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  whiteSpace: 'pre-wrap',
+                  overflowX: 'auto',
+                }}
+              >
+                {JSON.stringify(toolCall.args, null, 2)}
+              </div>
+            </div>
+          )}
+          {toolCall.resultText && (
+            <div style={{ marginTop: '8px' }}>
+              <div
+                style={{
+                  fontSize: '10px',
+                  color: 'var(--text-dim)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: '4px',
+                }}
+              >
+                Result
+              </div>
+              <div
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '12px',
+                  background: 'rgba(0,0,0,0.28)',
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  whiteSpace: 'pre-wrap',
+                  overflowX: 'auto',
+                }}
+              >
+                {toolCall.resultText}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+// Message component
+const MessageBubble: React.FC<{ message: TimelineItem }> = ({ message }) => {
+  if (!message.text) return null;
+
+  return (
+    <div
+      style={{
+        maxWidth: 'min(85%, 100%)',
+        padding: '12px 16px',
+        borderRadius: 'var(--radius)',
+        fontSize: '16px',
+        lineHeight: 1.75,
+        alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
+        background:
+          message.role === 'user'
+            ? 'linear-gradient(135deg, #292524, #1c1917)'
+            : 'linear-gradient(135deg, #1a0e02, #0c0a09)',
+        border:
+          message.role === 'user' ? '1px solid rgba(120,53,15,0.5)' : '1px solid rgba(120,53,15,0.4)',
+      }}
+    >
+      {message.source && (
+        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
+          {message.source}
+        </div>
+      )}
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {message.text}
+      </ReactMarkdown>
+    </div>
+  );
+};
+
+// StreamingBlocks component
+const StreamingBlocks: React.FC<{ message: StreamingMessage; isStreaming: boolean }> = ({
+  message,
+  isStreaming,
+}) => {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '85%', alignSelf: 'flex-start' }}>
+      {message.content.map((block: StreamingContentBlock, idx: number) => {
+        if (block.type === 'text') {
+          return (
+            <div
+              key={idx}
+              style={{
+                padding: '12px 16px',
+                borderRadius: 'var(--radius)',
+                background: 'linear-gradient(135deg, #1a0e02, #0c0a09)',
+                border: '1px solid rgba(120,53,15,0.4)',
+                fontSize: '16px',
+                lineHeight: 1.75,
+              }}
+            >
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {block.text || ''}
+              </ReactMarkdown>
+            </div>
+          );
+        }
+
+        if (block.type === 'thinking') {
+          return (
+            <ThinkingBlock
+              key={idx}
+              content={block.thinking || ''}
+              isStreaming={isStreaming && idx === message.content.length - 1}
+            />
+          );
+        }
+
+        if (block.type === 'toolCall') {
+          return (
+            <ToolCallBlock
+              key={idx}
+              toolCall={{
+                id: block.id || `tool-${idx}`,
+                toolName: block.name || 'tool',
+                args: block.arguments ?? block.input,
+                status: 'running',
+              }}
+            />
+          );
+        }
+
+        return null;
+      })}
+    </div>
+  );
+};
 
 export const MessageList: React.FC<MessageListProps> = ({
   messages,
@@ -33,21 +413,21 @@ export const MessageList: React.FC<MessageListProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Always scroll to bottom when a new committed message arrives.
+  // Scroll to bottom on new committed messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages.length]); // Only trigger on message count change
 
-  // Mid-stream updates: only scroll if already near the bottom so we don't
-  // hijack the user's scroll position while they're reading history.
+  // Smart scroll during streaming - only if user is near bottom
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || !isStreaming) return;
+    
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     if (distanceFromBottom < 200) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [streamingMessage, streamingText, thinkingText, toolCalls]);
+  }, [streamingMessage, streamingText, thinkingText, toolCalls, isStreaming]);
 
   return (
     <div
@@ -59,7 +439,6 @@ export const MessageList: React.FC<MessageListProps> = ({
         display: 'flex',
         flexDirection: 'column',
         gap: '12px',
-        scrollBehavior: 'smooth',
         minWidth: 0,
       }}
     >
@@ -68,7 +447,6 @@ export const MessageList: React.FC<MessageListProps> = ({
           style={{
             color: 'var(--text-dim)',
             fontSize: '13px',
-            padding: '8px 0',
             textAlign: 'center',
             marginTop: '40px',
           }}
@@ -83,7 +461,7 @@ export const MessageList: React.FC<MessageListProps> = ({
         }
         if (msg.kind === 'tool_call') {
           return (
-            <ToolCallCard
+            <ToolCallBlock
               key={msg.id}
               toolCall={{
                 id: msg.id,
@@ -96,94 +474,42 @@ export const MessageList: React.FC<MessageListProps> = ({
           );
         }
         if (msg.kind === 'blocks' && msg.blocks?.length) {
-          return (
-            <StreamingMessageBlocks
-              key={msg.id}
-              message={{ role: 'assistant', content: msg.blocks }}
-              isStreaming={false}
-            />
-          );
+          return <StreamingBlocks key={msg.id} message={{ role: 'assistant', content: msg.blocks }} isStreaming={false} />;
         }
-        return <Message key={msg.id} message={msg} />;
+        return <MessageBubble key={msg.id} message={msg} />;
       })}
 
-      {/* Active tool calls (before streaming message) */}
+      {/* Active tool calls */}
       {toolCalls.map((toolCall) => (
-        <ToolCallCard key={toolCall.id} toolCall={toolCall} />
+        <ToolCallBlock key={toolCall.id} toolCall={toolCall} />
       ))}
 
-      {/* Thinking block during streaming — only shown in fallback path */}
+      {/* Thinking block during streaming */}
       {!streamingMessage && thinkingText && <ThinkingBlock content={thinkingText} isStreaming={isStreaming} />}
 
-      {/* Phase 2: Render full content blocks when available */}
+      {/* Full streaming message blocks */}
       {streamingMessage ? (
-        <StreamingMessageBlocks message={streamingMessage} isStreaming={isStreaming} />
-      ) : streamingText && (
-        <div
-          className="msg agent streaming"
-          style={{
-            maxWidth: 'min(85%, 100%)',
-            minWidth: 0,
-            padding: '12px 16px',
-            borderRadius: 'var(--radius)',
-            fontSize: '16px',
-            lineHeight: 1.75,
-            overflowWrap: 'anywhere',
-            wordBreak: 'break-word',
-            alignSelf: 'flex-start',
-            background: 'linear-gradient(135deg, #1a0e02, #0c0a09)',
-            border: '1px solid var(--accent)',
-            boxShadow: '0 0 12px rgba(217,119,6,0.25)',
-          }}
-        >
-          <div className="message-content">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                pre: ({ children }) => (
-                  <pre
-                    style={{
-                      background: 'rgba(0,0,0,0.3)',
-                      padding: '8px',
-                      borderRadius: '4px',
-                      overflowX: 'auto',
-                      margin: '8px 0',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '13px',
-                    }}
-                  >
-                    {children}
-                  </pre>
-                ),
-                code: ({ inline, children, ...props }: any) =>
-                  inline ? (
-                    <code
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: '14px',
-                        background: 'rgba(0,0,0,0.3)',
-                        padding: '1px 4px',
-                        borderRadius: '3px',
-                      }}
-                      {...props}
-                    >
-                      {children}
-                    </code>
-                  ) : (
-                    <code style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }} {...props}>
-                      {children}
-                    </code>
-                  ),
-                strong: ({ children }) => (
-                  <strong style={{ color: 'var(--text)' }}>{children}</strong>
-                ),
-                em: ({ children }) => <em style={{ color: 'var(--text-dim)' }}>{children}</em>,
-              }}
-            >
+        <StreamingBlocks message={streamingMessage} isStreaming={isStreaming} />
+      ) : (
+        streamingText && (
+          <div
+            style={{
+              maxWidth: 'min(85%, 100%)',
+              padding: '12px 16px',
+              borderRadius: 'var(--radius)',
+              fontSize: '16px',
+              lineHeight: 1.75,
+              alignSelf: 'flex-start',
+              background: 'linear-gradient(135deg, #1a0e02, #0c0a09)',
+              border: '1px solid var(--accent)',
+              boxShadow: '0 0 12px rgba(217,119,6,0.25)',
+            }}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {streamingText}
             </ReactMarkdown>
           </div>
-        </div>
+        )
       )}
 
       <div ref={messagesEndRef} />

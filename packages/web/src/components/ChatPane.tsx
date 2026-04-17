@@ -196,6 +196,14 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
     await handleSendMessage('no, stay in current domain');
   };
 
+  const handleStop = async () => {
+    try {
+      await fetch(`/api/stop/${activeDomain}`, { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to stop generation:', err);
+    }
+  };
+
   return (
     <div
       style={{
@@ -238,7 +246,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
         />
       )}
 
-      <InputArea onSend={handleSendMessage} disabled={isStreaming} />
+      <InputArea onSend={handleSendMessage} disabled={isStreaming} isStreaming={isStreaming} onStop={handleStop} />
     </div>
   );
 };
