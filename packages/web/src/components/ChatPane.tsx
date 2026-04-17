@@ -157,7 +157,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
     }
   }, [newMessage, clearNewMessage]);
 
-  const showStreaming = !hideStreaming;
+  const showStreaming = !hideStreaming && messages.length <= streamStartLengthRef.current;
   const allMessages = [...messages, ...optimisticMessages];
 
   const handleSendMessage = async (text: string) => {
