@@ -33,13 +33,13 @@ export const MessageList: React.FC<MessageListProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Always scroll to bottom when a new committed message arrives or streaming starts/ends.
+  // Always scroll to bottom when a new committed message arrives.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingMessage]);
+  }, [messages]);
 
-  // Mid-stream updates (thinking tokens, tool call updates): only scroll if
-  // already near the bottom so we don't hijack the user's scroll position.
+  // Mid-stream updates: only scroll if already near the bottom so we don't
+  // hijack the user's scroll position while they're reading history.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -47,7 +47,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     if (distanceFromBottom < 200) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [streamingText, thinkingText, toolCalls]);
+  }, [streamingMessage, streamingText, thinkingText, toolCalls]);
 
   return (
     <div
