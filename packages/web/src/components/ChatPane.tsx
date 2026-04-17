@@ -142,11 +142,18 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
   const lastStreamingMessageRef = useRef<typeof streamingMessage>(null);
   if (streamingMessage) lastStreamingMessageRef.current = streamingMessage;
 
-  // effectiveStreamingMessage goes null when messages contains a newer item than
-  // the snapshot — meaning the reload landed with the committed response.
+  // Clear the frozen snapshot when agent:done fires — don't let it linger
+  // past the point where we know the response is complete.
+  const agentDoneRef = useRef(false);
+  if (newMessage && !agentDoneRef.current) agentDoneRef.current = true;
+  if (isStreaming && !wasStreamingRef.current) agentDoneRef.current = false; // reset on new stream
+
+  // effectiveStreamingMessage goes null when:
+  // a) messages contains a newer item than the snapshot (reload landed), OR
+  // b) agent:done has fired AND streamingMessage has cleared (clearStreamingState fired)
   const lastMessage = messages[messages.length - 1];
   const messagesUpdated = (lastMessage?.timestamp ?? 0) > streamStartTimestampRef.current;
-  const effectiveStreamingMessage = messagesUpdated
+  const effectiveStreamingMessage = (messagesUpdated || (agentDoneRef.current && !streamingMessage))
     ? null
     : (streamingMessage ?? lastStreamingMessageRef.current);
 
