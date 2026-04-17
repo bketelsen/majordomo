@@ -71,7 +71,7 @@ export const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ content, isStreami
           ▾
         </span>
       </div>
-      {expanded && (
+      {expanded && !isStreaming && (
         <div
           style={{
             fontFamily: 'var(--font-mono)',

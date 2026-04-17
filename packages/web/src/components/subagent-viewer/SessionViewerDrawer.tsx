@@ -226,28 +226,30 @@ export const SessionViewerDrawer: React.FC<SessionViewerDrawerProps> = ({ runId,
 
   useEffect(() => {
     if (isLive) {
-      // Connect to SSE stream for live runs
+      // Connect to SSE stream for live runs only
       const eventSource = new EventSource(`/api/subagents/${runId}/stream`);
+      let connected = false;
       
       eventSource.addEventListener('message', (e) => {
+        connected = true;
         try {
           const { events: newEvents } = JSON.parse(e.data);
           const parsed = parseJSONL(newEvents);
           setEvents(prev => {
-            // Deduplicate events (SSE might send overlapping data)
             const existing = new Set(prev.map(e => JSON.stringify(e)));
             const unique = parsed.filter(e => !existing.has(JSON.stringify(e)));
             return [...prev, ...unique];
           });
           setLoading(false);
         } catch (err) {
-          console.error('Failed to parse SSE event:', err);
+          // ignore parse errors
         }
       });
 
       eventSource.onerror = () => {
         eventSource.close();
-        setLoading(false);
+        // Only show error if we never connected (immediate close = no session data)
+        if (!connected) setLoading(false);
       };
 
       return () => eventSource.close();

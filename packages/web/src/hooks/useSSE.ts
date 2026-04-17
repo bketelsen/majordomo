@@ -134,11 +134,6 @@ export function useSSE(activeDomain: string) {
             break;
 
           case 'agent:message_update':
-            // Phase 2: Wire full message state to UI
-            console.log('[Phase 2] agent:message_update received:', {
-              domain: data.domain,
-              message: data.message,
-            });
             setState(prev => ({
               ...prev,
               isStreaming: true,
