@@ -3,12 +3,14 @@
  */
 
 import { useState, useEffect } from 'react';
+import type { StreamingContentBlock } from './useSSE';
 
 export interface TimelineItem {
   id: string;
-  kind: 'chat' | 'thinking' | 'tool_call';
+  kind: 'chat' | 'thinking' | 'tool_call' | 'blocks';
   role?: 'user' | 'assistant';
   text?: string;
+  blocks?: StreamingContentBlock[];  // kind: 'blocks'
   source?: string;
   toolName?: string;
   args?: unknown;

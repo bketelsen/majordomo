@@ -181,14 +181,15 @@ export function useSSE(activeDomain: string) {
               ...prev,
               newMessage: {
                 id: `a-${Date.now()}`,
-                kind: 'chat',
+                // If we have a streamingMessage with content blocks, preserve them
+                kind: prev.streamingMessage?.content?.length ? 'blocks' : 'chat',
                 role: 'assistant',
                 text: data.text,
+                blocks: prev.streamingMessage?.content,
                 timestamp: Date.now(),
               },
             }));
-            // Clear streaming state after a brief delay to allow UI to update
-            setTimeout(clearStreamingState, 100);
+            setTimeout(clearStreamingState, 1500);
             break;
 
           case 'agent:error':

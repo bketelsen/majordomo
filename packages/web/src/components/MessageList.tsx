@@ -81,6 +81,15 @@ export const MessageList: React.FC<MessageListProps> = ({
             />
           );
         }
+        if (msg.kind === 'blocks' && msg.blocks?.length) {
+          return (
+            <StreamingMessageBlocks
+              key={msg.id}
+              message={{ role: 'assistant', content: msg.blocks }}
+              isStreaming={false}
+            />
+          );
+        }
         return <Message key={msg.id} message={msg} />;
       })}
 
