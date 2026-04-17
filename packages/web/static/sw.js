@@ -6,7 +6,7 @@
  * - Network-first for all API routes (live data)
  */
 
-const CACHE_NAME = 'majordomo-v4';
+const CACHE_NAME = 'majordomo-v5';
 const STATIC_ASSETS = [
   '/',
   '/app.js',

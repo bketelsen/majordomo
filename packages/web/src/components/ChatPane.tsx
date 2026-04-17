@@ -126,11 +126,13 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain }) => {
     setAllMessages(messages);
   }, [messages]);
 
-  // Add new message when it arrives from SSE
+  // Add new message when it arrives from SSE, then reload from DB
   useEffect(() => {
     if (newMessage) {
       setAllMessages((prev) => [...prev, newMessage]);
       clearNewMessage();
+      // Reload from DB after a short delay to get persisted tool_call items
+      setTimeout(() => reload(), 800);
     }
   }, [newMessage, clearNewMessage]);
 
