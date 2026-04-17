@@ -281,9 +281,21 @@ function pruneExpiredCache(): void {
 
 // Periodic cleanup to prevent unbounded growth
 // Runs every 60 seconds to remove expired entries
-const cacheCleanupInterval = setInterval(() => {
+let cacheCleanupInterval: NodeJS.Timeout | null = setInterval(() => {
   pruneExpiredCache();
 }, 60000);
+
+/**
+ * Cleanup function to be called on server shutdown.
+ * Clears the cache cleanup interval to prevent memory leaks.
+ */
+export function cleanup(): void {
+  if (cacheCleanupInterval) {
+    clearInterval(cacheCleanupInterval);
+    cacheCleanupInterval = null;
+    logger.info("Cleared cache cleanup interval");
+  }
+}
 
 /**
  * Read lines from end of file in reverse order.
@@ -1971,4 +1983,14 @@ if (import.meta.main) {
   });
 
   logger.info(`Majordomo Web listening on http://localhost:${PORT}`, { port: PORT });
+
+  // Handle graceful shutdown
+  const shutdown = () => {
+    logger.info("Shutting down web server...");
+    cleanup();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }
