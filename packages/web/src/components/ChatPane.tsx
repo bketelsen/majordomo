@@ -125,30 +125,36 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
   // Only track optimistic user messages — everything else comes from useMessages directly.
   const [optimisticMessages, setOptimisticMessages] = useState<TimelineItem[]>([]);
 
-  // Track streaming state transitions inline during render (synchronous, no effect lag).
+  // Snapshot message count when streaming starts (inline, synchronous).
   const wasStreamingRef = useRef(false);
   const streamStartLengthRef = useRef(0);
   if (isStreaming && !wasStreamingRef.current) {
-    // Streaming just started — snapshot message count
     streamStartLengthRef.current = messages.length;
   }
   wasStreamingRef.current = isStreaming;
 
-  // Streaming content is visible only while streaming AND messages hasn't grown.
-  // The moment reload lands (messages.length increases), streaming hides atomically.
-  const showStreaming = isStreaming && messages.length <= streamStartLengthRef.current;
-  const allMessages = [...messages, ...optimisticMessages];
+  // While streamingMessage is active, only show pre-stream messages.
+  // This makes streaming content and committed messages mutually exclusive —
+  // no double is physically possible regardless of reload timing.
+  const baseMessages = streamingMessage
+    ? messages.slice(0, streamStartLengthRef.current)
+    : messages;
+  const allMessages = [...baseMessages, ...optimisticMessages];
+
+  // Always pass streaming props — MessageList renders them when non-null/non-empty.
+  const showStreaming = true;
 
   // Propagate SSE connection state up to App for the header badge
   useEffect(() => {
     onConnectionChange?.(isConnected);
   }, [isConnected, onConnectionChange]);
 
-  // When agent:done fires, reload from DB and clear optimistic messages.
+  // When agent:done fires, reload from DB after a brief delay to ensure
+  // the JSONL has been flushed before we read it.
   useEffect(() => {
     if (newMessage) {
       clearNewMessage();
-      reload().finally(() => setOptimisticMessages([]));
+      setTimeout(() => reload().finally(() => setOptimisticMessages([])), 300);
     }
   }, [newMessage, clearNewMessage]);
 
