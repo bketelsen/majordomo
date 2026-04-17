@@ -6,6 +6,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import type { StreamingMessage, StreamingContentBlock } from '../hooks/useSSE';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallCard } from './ToolCallCard';
@@ -35,9 +36,10 @@ export const StreamingMessageBlocks: React.FC<StreamingMessageBlocksProps> = ({
                 fontSize: '16px',
                 lineHeight: 1.75,
                 overflowWrap: 'anywhere',
+                whiteSpace: 'pre-wrap',
               }}
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
                 {block.text || ''}
               </ReactMarkdown>
             </div>
