@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { useMessages } from '../hooks/useMessages';
+import { useMessages, TimelineItem } from '../hooks/useMessages';
 import { useSSE, DomainSwitchSuggestion } from '../hooks/useSSE';
 import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
@@ -122,38 +122,37 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
     clearNewMessage,
   } = useSSE(activeDomain, onDomainEvent);
 
-  const [allMessages, setAllMessages] = useState(messages);
+  // Only track optimistic user messages — everything else comes from useMessages directly.
+  const [optimisticMessages, setOptimisticMessages] = useState<TimelineItem[]>([]);
 
   // Propagate SSE connection state up to App for the header badge
   useEffect(() => {
     onConnectionChange?.(isConnected);
   }, [isConnected, onConnectionChange]);
 
-  // Update messages when they change from the hook
-  useEffect(() => {
-    setAllMessages(messages);
-  }, [messages]);
-
-  // When agent:done fires, just reload from DB — the streaming content is already
-  // visible. Optimistically pushing the message creates a duplicate that flickers
-  // until the reload resolves.
+  // When agent:done fires, reload from DB and clear optimistic messages.
   useEffect(() => {
     if (newMessage) {
       clearNewMessage();
-      setTimeout(() => reload(), 500);
+      setTimeout(() => {
+        reload();
+        setOptimisticMessages([]);
+      }, 500);
     }
   }, [newMessage, clearNewMessage]);
 
+  const allMessages = [...messages, ...optimisticMessages];
+
   const handleSendMessage = async (text: string) => {
     // Optimistically add user message
-    const userMessage = {
+    const userMessage: TimelineItem = {
       id: `u-${Date.now()}`,
       kind: 'chat' as const,
       role: 'user' as const,
       text,
       timestamp: Date.now(),
     };
-    setAllMessages((prev) => [...prev, userMessage]);
+    setOptimisticMessages(prev => [...prev, userMessage]);
 
     try {
       const res = await fetch(`/api/messages/${activeDomain}`, {
@@ -164,24 +163,24 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Request failed' }));
-        const errorMessage = {
+        const errorMessage: TimelineItem = {
           id: `e-${Date.now()}`,
           kind: 'chat' as const,
           role: 'assistant' as const,
           text: `❌ ${err.error ?? 'Request failed'}`,
           timestamp: Date.now(),
         };
-        setAllMessages((prev) => [...prev, errorMessage]);
+        setOptimisticMessages(prev => [...prev, errorMessage]);
       }
     } catch (err) {
-      const errorMessage = {
+      const errorMessage: TimelineItem = {
         id: `e-${Date.now()}`,
         kind: 'chat' as const,
         role: 'assistant' as const,
         text: `❌ Network error: ${err instanceof Error ? err.message : 'Unknown error'}`,
         timestamp: Date.now(),
       };
-      setAllMessages((prev) => [...prev, errorMessage]);
+      setOptimisticMessages(prev => [...prev, errorMessage]);
     }
   };
 
