@@ -134,13 +134,13 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
     setAllMessages(messages);
   }, [messages]);
 
-  // Add new message when it arrives from SSE, then reload from DB
+  // When agent:done fires, just reload from DB — the streaming content is already
+  // visible. Optimistically pushing the message creates a duplicate that flickers
+  // until the reload resolves.
   useEffect(() => {
     if (newMessage) {
-      setAllMessages((prev) => [...prev, newMessage]);
       clearNewMessage();
-      // Reload from DB after a short delay to get persisted tool_call items
-      setTimeout(() => reload(), 800);
+      setTimeout(() => reload(), 500);
     }
   }, [newMessage, clearNewMessage]);
 
