@@ -115,6 +115,14 @@ export function useSSE(activeDomain: string) {
             }));
             break;
 
+          case 'agent:message_update':
+            // Phase 1: Log full message state (not wired to UI yet)
+            console.log('[Phase 1] agent:message_update received:', {
+              domain: data.domain,
+              message: data.message,
+            });
+            break;
+
           case 'agent:tool_start':
             setState(prev => ({
               ...prev,

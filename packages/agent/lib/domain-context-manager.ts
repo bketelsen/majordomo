@@ -223,6 +223,13 @@ export class DomainContextManager {
           break;
 
         case "message_update":
+          // Phase 1: Emit full message state (new event, parallel to existing deltas)
+          sharedEventBus.emit("agent:message_update", {
+            domain: this.currentMessageDomain,
+            message: event.message,
+          });
+
+          // Existing delta events (keep for backward compatibility)
           if (event.assistantMessageEvent.type === "text_delta") {
             this.responseBuffer += event.assistantMessageEvent.delta;
             this.onToken?.(event.assistantMessageEvent.delta);

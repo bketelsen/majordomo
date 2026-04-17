@@ -90,6 +90,10 @@ webEvents.on("agent:tool_start", (data: { domain: string; toolName: string; args
 webEvents.on("agent:tool_end", (data: { domain: string; toolName: string; isError: boolean }) => {
   broadcast("agent:tool_end", data, data.domain);
 });
+// Phase 1: Forward full message state (parallel to existing delta events)
+webEvents.on("agent:message_update", (data: { domain: string; message: any }) => {
+  broadcast("agent:message_update", data, data.domain);
+});
 webEvents.on("domain:created", (data: unknown) => broadcast("domain:created", data));
 webEvents.on("domain:deleted", (data: unknown) => broadcast("domain:deleted", data));
 webEvents.on("domain:switched", (data: unknown) => broadcast("domain:switched", data));
