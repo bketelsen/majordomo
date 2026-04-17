@@ -136,6 +136,7 @@ export class DomainContextManager {
       resourceLoader: loader,
       sessionManager: SessionManager.open(sessionFile),
       settingsManager,
+      thinkingLevel: "low",
     });
 
     if (modelFallbackMessage) {

@@ -54,14 +54,14 @@ export const StreamingMessageBlocks: React.FC<StreamingMessageBlocksProps> = ({
           );
         }
 
-        if (block.type === 'tool_use') {
+        if (block.type === 'toolCall') {
           return (
             <ToolCallCard
               key={idx}
               toolCall={{
                 id: block.id || `tool-${idx}`,
                 toolName: block.name || 'tool',
-                args: block.input,
+                args: block.arguments ?? block.input,
                 status: 'running',
               }}
             />

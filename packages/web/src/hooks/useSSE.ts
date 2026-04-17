@@ -6,13 +6,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { TimelineItem } from './useMessages';
 // Local type matching pi-ai's AssistantMessage shape (avoid cross-package dep)
 export interface StreamingContentBlock {
-  type: 'text' | 'thinking' | 'tool_use' | 'tool_result';
-  text?: string;          // type: text
-  thinking?: string;      // type: thinking
-  id?: string;            // type: tool_use
-  name?: string;          // type: tool_use
-  input?: Record<string, unknown>; // type: tool_use
-  content?: string;       // type: tool_result
+  type: 'text' | 'thinking' | 'toolCall' | 'tool_result';
+  text?: string;           // type: text
+  thinking?: string;       // type: thinking
+  id?: string;             // type: toolCall
+  name?: string;           // type: toolCall
+  arguments?: Record<string, unknown>; // type: toolCall (pi uses 'arguments' not 'input')
+  input?: Record<string, unknown>;     // alias
+  content?: string;        // type: tool_result
 }
 export interface StreamingMessage {
   role: 'assistant';
