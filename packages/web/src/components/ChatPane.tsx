@@ -142,10 +142,10 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
       // Reload from DB after a short delay to get persisted tool_call items
       setTimeout(() => reload(), 800);
     }
-  }, [newMessage, clearNewMessage, reload]);
+  }, [newMessage, clearNewMessage]);
 
   const handleSendMessage = async (text: string) => {
-    // Optimistically add user message to nlux
+    // Optimistically add user message
     const userMessage = {
       id: `u-${Date.now()}`,
       kind: 'chat' as const,
@@ -173,7 +173,6 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
         };
         setAllMessages((prev) => [...prev, errorMessage]);
       }
-      // SSE will handle streaming the response
     } catch (err) {
       const errorMessage = {
         id: `e-${Date.now()}`,
@@ -240,6 +239,10 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent,
         <MessageList
           messages={allMessages}
           streamingText={streamingText}
+          thinkingText={thinkingText}
+          toolCalls={toolCalls}
+          isStreaming={isStreaming}
+          streamingMessage={streamingMessage}
         />
       )}
 
