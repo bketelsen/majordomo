@@ -14,7 +14,6 @@ export interface StreamingContentBlock {
   arguments?: Record<string, unknown>; // type: toolCall (pi uses 'arguments' not 'input')
   input?: Record<string, unknown>;     // alias
   content?: string;        // type: tool_result
-  _status?: 'running' | 'success' | 'error'; // injected by tool_end handler
 }
 export interface StreamingMessage {
   role: 'assistant';
@@ -118,12 +117,19 @@ export function useSSE(activeDomain: string) {
 
         switch (event) {
           case 'agent:token':
-            setState(prev => ({
-              ...prev,
-              isStreaming: true,
-              streamingText: prev.streamingText + data.delta,
-              thinkingText: '', // Clear thinking when text starts
-            }));
+            setState(prev => {
+              // Phase 2: skip redundant streamingText update when streamingMessage is active.
+              // agent:message_update already handles the full render; updating streamingText
+              // here causes a second render per token AND triggers the scrollIntoView effect
+              // in MessageList even though streamingText is not displayed — pure CPU waste.
+              if (prev.streamingMessage) return prev;
+              return {
+                ...prev,
+                isStreaming: true,
+                streamingText: prev.streamingText + data.delta,
+                thinkingText: '', // Clear thinking when text starts
+              };
+            });
             break;
 
           case 'agent:thinking':
@@ -158,32 +164,18 @@ export function useSSE(activeDomain: string) {
             break;
 
           case 'agent:tool_end':
-            setState(prev => {
-              // Update old toolCalls array (fallback path)
-              const updatedToolCalls = prev.toolCalls.map((tc, idx) =>
+            setState(prev => ({
+              ...prev,
+              toolCalls: prev.toolCalls.map((tc, idx) =>
                 tc.toolName === data.toolName && idx === prev.toolCalls.filter(t => t.toolName === data.toolName).length - 1
-                  ? { ...tc, status: data.isError ? 'error' as const : 'success' as const }
+                  ? {
+                      ...tc,
+                      status: data.isError ? 'error' : 'success',
+                      resultText: data.result,
+                    }
                   : tc
-              );
-              // Update streamingMessage content blocks (Phase 2 path)
-              let updatedStreamingMessage = prev.streamingMessage;
-              if (prev.streamingMessage?.content) {
-                // Find the last toolCall block matching this tool name and mark it done
-                let lastIdx = -1;
-                prev.streamingMessage.content.forEach((block, i) => {
-                  if (block.type === 'toolCall' && block.name === data.toolName) lastIdx = i;
-                });
-                if (lastIdx >= 0) {
-                  const newContent = [...prev.streamingMessage.content];
-                  newContent[lastIdx] = {
-                    ...newContent[lastIdx],
-                    _status: data.isError ? 'error' : 'success',
-                  };
-                  updatedStreamingMessage = { ...prev.streamingMessage, content: newContent };
-                }
-              }
-              return { ...prev, toolCalls: updatedToolCalls, streamingMessage: updatedStreamingMessage };
-            });
+              ),
+            }));
             break;
 
           case 'agent:done':

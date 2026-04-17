@@ -64,7 +64,7 @@ export const StreamingMessageBlocks: React.FC<StreamingMessageBlocksProps> = ({
                 id: block.id || `tool-${idx}`,
                 toolName: block.name || 'tool',
                 args: block.arguments ?? block.input,
-                status: block._status || 'running',
+                status: 'running',
               }}
             />
           );

@@ -34,7 +34,7 @@ export const MessageList: React.FC<MessageListProps> = ({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingText, thinkingText, toolCalls]);
+  }, [messages, streamingMessage, streamingText, thinkingText, toolCalls]);
 
   return (
     <div
