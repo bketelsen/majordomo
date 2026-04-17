@@ -1611,14 +1611,14 @@ app.get("/sse", (c) => {
         new TextEncoder().encode(`data: ${JSON.stringify({ event: "connected", clientId })}\n\n`)
       );
 
-      // Heartbeat every 15s to keep HTTP/2 streams alive through Tailscale proxy
+      // Heartbeat every 8s — Tailscale/HTTP2 proxies can close idle streams at ~10s
       const heartbeat = setInterval(() => {
         try {
           controller.enqueue(new TextEncoder().encode(`: heartbeat\n\n`));
         } catch {
           clearInterval(heartbeat);
         }
-      }, 15000);
+      }, 8000);
 
       // Store heartbeat ref for cleanup (type-safe via WeakMap)
       heartbeatTimers.set(controller, heartbeat);

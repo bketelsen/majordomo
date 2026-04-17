@@ -14,6 +14,7 @@ export interface StreamingContentBlock {
   arguments?: Record<string, unknown>; // type: toolCall (pi uses 'arguments' not 'input')
   input?: Record<string, unknown>;     // alias
   content?: string;        // type: tool_result
+  _status?: 'running' | 'success' | 'error'; // injected by tool_end handler
 }
 export interface StreamingMessage {
   role: 'assistant';
@@ -157,18 +158,32 @@ export function useSSE(activeDomain: string) {
             break;
 
           case 'agent:tool_end':
-            setState(prev => ({
-              ...prev,
-              toolCalls: prev.toolCalls.map((tc, idx) =>
+            setState(prev => {
+              // Update old toolCalls array (fallback path)
+              const updatedToolCalls = prev.toolCalls.map((tc, idx) =>
                 tc.toolName === data.toolName && idx === prev.toolCalls.filter(t => t.toolName === data.toolName).length - 1
-                  ? {
-                      ...tc,
-                      status: data.isError ? 'error' : 'success',
-                      resultText: data.result,
-                    }
+                  ? { ...tc, status: data.isError ? 'error' as const : 'success' as const }
                   : tc
-              ),
-            }));
+              );
+              // Update streamingMessage content blocks (Phase 2 path)
+              let updatedStreamingMessage = prev.streamingMessage;
+              if (prev.streamingMessage?.content) {
+                // Find the last toolCall block matching this tool name and mark it done
+                let lastIdx = -1;
+                prev.streamingMessage.content.forEach((block, i) => {
+                  if (block.type === 'toolCall' && block.name === data.toolName) lastIdx = i;
+                });
+                if (lastIdx >= 0) {
+                  const newContent = [...prev.streamingMessage.content];
+                  newContent[lastIdx] = {
+                    ...newContent[lastIdx],
+                    _status: data.isError ? 'error' : 'success',
+                  };
+                  updatedStreamingMessage = { ...prev.streamingMessage, content: newContent };
+                }
+              }
+              return { ...prev, toolCalls: updatedToolCalls, streamingMessage: updatedStreamingMessage };
+            });
             break;
 
           case 'agent:done':
