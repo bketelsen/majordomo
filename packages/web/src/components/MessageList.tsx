@@ -413,12 +413,17 @@ export const MessageList: React.FC<MessageListProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Only scroll on new committed messages. During streaming, the sentinel div
-  // has overflow-anchor: auto so the browser keeps the viewport pinned to the
-  // bottom naturally as content grows — no JS scrolling needed per token.
+  // New committed message (count changed): smooth scroll to bottom.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
+
+  // Streaming updates: instant scroll — invisible if already at bottom,
+  // no animation jank if not. Never fights the user.
+  useEffect(() => {
+    if (!isStreaming) return;
+    messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+  }, [streamingMessage, streamingText, isStreaming]);
 
   return (
     <div
