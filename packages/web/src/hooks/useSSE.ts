@@ -45,7 +45,7 @@ export interface SSEState {
   streamingMessage: StreamingMessage | null;  // Phase 2: Full message state
 }
 
-export function useSSE(activeDomain: string) {
+export function useSSE(activeDomain: string, onDomainEvent?: (event: string) => void) {
   const activeDomainRef = useRef(activeDomain);
   activeDomainRef.current = activeDomain; // keep ref in sync without re-running effect
 
@@ -243,7 +243,7 @@ export function useSSE(activeDomain: string) {
           case 'domain:created':
           case 'domain:deleted':
           case 'domain:switched':
-            // These are handled by the parent component
+            onDomainEvent?.(event);
             break;
         }
       };

@@ -10,6 +10,8 @@ import { InputArea } from './InputArea';
 
 interface ChatPaneProps {
   activeDomain: string;
+  onDomainEvent?: (event: string) => void;
+  onConnectionChange?: (connected: boolean) => void;
 }
 
 const DomainSwitchBanner: React.FC<{
@@ -105,9 +107,10 @@ const DomainSwitchBanner: React.FC<{
   );
 };
 
-export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain }) => {
+export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain, onDomainEvent, onConnectionChange }) => {
   const { messages, loading, reload } = useMessages(activeDomain);
   const {
+    isConnected,
     isStreaming,
     streamingText,
     thinkingText,
@@ -117,9 +120,14 @@ export const ChatPane: React.FC<ChatPaneProps> = ({ activeDomain }) => {
     streamingMessage,
     dismissSuggestion,
     clearNewMessage,
-  } = useSSE(activeDomain);
+  } = useSSE(activeDomain, onDomainEvent);
 
   const [allMessages, setAllMessages] = useState(messages);
+
+  // Propagate SSE connection state up to App for the header badge
+  useEffect(() => {
+    onConnectionChange?.(isConnected);
+  }, [isConnected, onConnectionChange]);
 
   // Update messages when they change from the hook
   useEffect(() => {

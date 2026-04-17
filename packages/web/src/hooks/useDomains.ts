@@ -2,7 +2,7 @@
  * Hook for managing domains
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export interface Domain {
   id: string;
@@ -27,11 +27,7 @@ export function useDomains() {
     error: null,
   });
 
-  useEffect(() => {
-    loadDomains();
-  }, []);
-
-  async function loadDomains() {
+  const loadDomains = useCallback(async function loadDomains() {
     try {
       const res = await fetch('/api/domains');
       if (!res.ok) {
@@ -51,7 +47,11 @@ export function useDomains() {
         error: err instanceof Error ? err.message : 'Failed to load domains',
       }));
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    loadDomains();
+  }, [loadDomains]);
 
   async function switchDomain(domainId: string) {
     try {

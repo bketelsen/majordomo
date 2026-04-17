@@ -3,7 +3,7 @@
  * Phase 3: Complete React UI with widgets, terminal, and full production-ready features
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './app.css';
 import { useDomains } from './hooks/useDomains';
@@ -17,37 +17,15 @@ const App: React.FC = () => {
   const [isConnected, setIsConnected] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Listen for domain events via SSE to trigger reload
-  useEffect(() => {
-    const evtSource = new EventSource('/sse');
-
-    evtSource.onopen = () => {
-      setIsConnected(true);
-    };
-
-    evtSource.onerror = () => {
-      setIsConnected(false);
-    };
-
-    evtSource.onmessage = (e) => {
-      let payload: { event: string; data: any };
-      try {
-        payload = JSON.parse(e.data);
-      } catch {
-        return;
-      }
-
-      const { event } = payload;
-
-      if (event === 'domain:created' || event === 'domain:deleted') {
-        reload();
-      }
-    };
-
-    return () => {
-      evtSource.close();
-    };
+  const handleDomainEvent = useCallback((event: string) => {
+    if (event === 'domain:created' || event === 'domain:deleted') {
+      reload();
+    }
   }, [reload]);
+
+  const handleConnectionChange = useCallback((connected: boolean) => {
+    setIsConnected(connected);
+  }, []);
 
   const handleSwitchDomain = async (domainId: string) => {
     const success = await switchDomain(domainId);
@@ -112,7 +90,11 @@ const App: React.FC = () => {
               Loading...
             </div>
           ) : (
-            <ChatPane activeDomain={activeDomain} />
+            <ChatPane
+              activeDomain={activeDomain}
+              onDomainEvent={handleDomainEvent}
+              onConnectionChange={handleConnectionChange}
+            />
           )}
         </main>
 
